@@ -109,19 +109,23 @@ function fail(res, status, message) { send(res, status, { message }); }
 
 async function body(req) {
   if (req.body) {
+    if (Buffer.isBuffer(req.body)) return JSON.parse(req.body.toString());
     return typeof req.body === 'string' ? JSON.parse(req.body) : req.body;
   }
+  if (req.complete) return {};
   return await new Promise((resolve, reject) => {
     let raw = '';
+    const timer = setTimeout(() => reject(new Error('Timeout reading request body')), 3000);
     req.on('data', (chunk) => {
       raw += chunk;
-      if (raw.length > 1_000_000) req.destroy(new Error('Request body too large'));
+      if (raw.length > 1_000_000) { clearTimeout(timer); req.destroy(new Error('Request body too large')); }
     });
     req.on('end', () => {
+      clearTimeout(timer);
       if (!raw) return resolve({});
       try { resolve(JSON.parse(raw)); } catch { reject(new Error('Invalid JSON body')); }
     });
-    req.on('error', reject);
+    req.on('error', (err) => { clearTimeout(timer); reject(err); });
   });
 }
 
