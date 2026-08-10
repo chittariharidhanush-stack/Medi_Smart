@@ -74,7 +74,7 @@ function mountVisualFX(){
   let pointer={x:.5,y:.35,tx:.5,ty:.35};
   const reduce=window.matchMedia('(prefers-reduced-motion: reduce)').matches;
   const isCoarse=matchMedia('(pointer:coarse)').matches;
-  const N=reduce?35:(isCoarse?70:125);
+  const N=reduce?15:(isCoarse?35:60);
   const pts=Array.from({length:N},()=>({
     x:(Math.random()-.5)*2.5,y:(Math.random()-.5)*1.8,z:Math.random()*2.8+.2,
     vx:(Math.random()-.5)*.002,vy:(Math.random()-.5)*.002,vz:(Math.random()-.5)*.0015,
@@ -108,7 +108,7 @@ function mountVisualFX(){
     ctx.restore();
   };
   const draw=now=>{
-    const dt=Math.min(32,now-last); last=now; time+=dt*.001;
+    const dt=Math.min(32,now-last); last=now; time+=dt*.0004;
     pointer.x+=(pointer.tx-pointer.x)*.055; pointer.y+=(pointer.ty-pointer.y)*.055;
     ctx.clearRect(0,0,W,H);
     const bg=ctx.createRadialGradient(W*(.5+(.5-pointer.x)*.18),H*.18,0,W*.5,H*.35,Math.max(W,H)*.85);
@@ -118,7 +118,7 @@ function mountVisualFX(){
     const projected=[];
     for(const p of pts){
       p.x+=p.vx*dt;p.y+=p.vy*dt;p.z+=p.vz*dt;
-      p.x+=Math.sin(time*.35+p.phase)*.00045*dt;
+      p.x+=Math.sin(time*.15+p.phase)*.0002*dt;
       if(p.x>1.35)p.x=-1.35;if(p.x<-1.35)p.x=1.35;if(p.y>1)p.y=-1;if(p.y<-1)p.y=1;if(p.z>3)p.z=.2;if(p.z<.18)p.z=3;
       projected.push({...project(p),p});
     }
@@ -135,7 +135,7 @@ function mountVisualFX(){
       ctx.fillStyle=`rgba(160,255,247,${Math.min(.8,.2+a.s*.3)})`;ctx.beginPath();ctx.arc(a.x,a.y,a.p.size*a.s,0,Math.PI*2);ctx.fill();
     }
     if(!reduce){
-      ctx.save();ctx.translate(W/2,H*.52);ctx.rotate(time*.025);
+      ctx.save();ctx.translate(W/2,H*.52);ctx.rotate(time*.01);
       for(let layer=0;layer<3;layer++){
         const radius=Math.min(W,H)*(.18+layer*.055), tilt=.28+layer*.12;
         ctx.save();ctx.scale(1,tilt);ctx.rotate(layer*1.9);
