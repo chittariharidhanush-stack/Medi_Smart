@@ -1,8 +1,8 @@
 'use strict';
 
-const http = require('node:http');
-const crypto = require('node:crypto');
-const { URL } = require('node:url');
+const http = require('http');
+const crypto = require('crypto');
+const { URL } = require('url');
 
 const PORT = Number(process.env.PORT || 4000);
 const HOST = process.env.HOST || '127.0.0.1';
