@@ -1,8 +1,6 @@
-'use strict';
-
-const http = require('node:http');
-const crypto = require('node:crypto');
-const { URL } = require('node:url');
+import http from 'node:http';
+import crypto from 'node:crypto';
+import { URL } from 'node:url';
 
 const PORT = Number(process.env.PORT || 4000);
 const HOST = process.env.HOST || '127.0.0.1';
@@ -340,5 +338,5 @@ function enrichAppointment(a) {
 function enrichPrescription(p) { return { ...p, patient: safeUser(users.find((u) => u.id === p.patientId)), doctor: safeUser(users.find((u) => u.id === p.doctorId)) }; }
 function enrichRecord(r) { return { ...r, patient: safeUser(users.find((u) => u.id === r.patientId)), uploadedByUser: safeUser(users.find((u) => u.id === r.uploadedBy)) }; }
 
-module.exports = handle;
+export default handle;
 
