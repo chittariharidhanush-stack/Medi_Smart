@@ -16,7 +16,7 @@ const notifications = [];
 const emergencyAlerts = [];
 const sessions = new Map();
 
-const id = () => crypto.randomUUID();
+const id = () => crypto.randomBytes(16).toString('hex');
 const now = () => new Date().toISOString();
 const clean = (value) => String(value ?? '').trim();
 const emailOf = (value) => clean(value).toLowerCase();
