@@ -108,6 +108,9 @@ function send(res, status, payload) {
 function fail(res, status, message) { send(res, status, { message }); }
 
 async function body(req) {
+  if (req.body) {
+    return typeof req.body === 'string' ? JSON.parse(req.body) : req.body;
+  }
   return await new Promise((resolve, reject) => {
     let raw = '';
     req.on('data', (chunk) => {
@@ -334,8 +337,4 @@ function enrichPrescription(p) { return { ...p, patient: safeUser(users.find((u)
 function enrichRecord(r) { return { ...r, patient: safeUser(users.find((u) => u.id === r.patientId)), uploadedByUser: safeUser(users.find((u) => u.id === r.uploadedBy)) }; }
 
 module.exports = handle;
-module.exports.config = {
-  api: {
-    bodyParser: false,
-  },
-};
+
