@@ -1,12 +1,26 @@
 {
-  "name": "medi-smart-frontend",
-  "version": "2.0.0",
-  "private": true,
-  "description": "Medi Smart dependency-free accessible frontend",
+  "name": "medi-smart",
+  "version": "1.0.0",
+  "description": "Home → Get Started → Select Role → Role-specific Login → Separate Dashboard",
+  "main": "index.js",
   "scripts": {
-    "dev": "node dev-server.mjs",
-    "build": "node build.mjs",
-    "preview": "node preview-server.mjs",
-    "check": "node --check src/app.js"
+    "test": "echo \"Error: no test specified\" && exit 1",
+    "dev": "concurrently \"npm run dev --prefix backend\" \"npm run dev --prefix frontend\"",
+    "build": "npm run build --prefix frontend"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/chittariharidhanush-stack/Medi_Smart.git"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "type": "commonjs",
+  "bugs": {
+    "url": "https://github.com/chittariharidhanush-stack/Medi_Smart/issues"
+  },
+  "homepage": "https://github.com/chittariharidhanush-stack/Medi_Smart#readme",
+  "devDependencies": {
+    "concurrently": "^10.0.5"
   }
 }

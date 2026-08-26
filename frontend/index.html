@@ -1,0 +1,27 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Medi Smart - Next-Gen AI Telemedicine</title>
+  <link rel="stylesheet" href="/src/styles.css">
+  <!-- React Bits Dependencies: GSAP, OGL, React & ReactDOM -->
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/gsap/3.12.5/gsap.min.js"></script>
+  <script src="https://unpkg.com/ogl@1.0.8/dist/ogl.umd.js"></script>
+  <script src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
+  <script src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
+</head>
+<body>
+  <!-- Strands WebGL Background Canvas Container -->
+  <div id="strands-bg" style="position:fixed; inset:0; width:100vw; height:100vh; z-index:-1; pointer-events:none;"></div>
+  
+  <!-- Staggered Navigation Overlay Container -->
+  <div id="staggered-menu-root"></div>
+  
+  <!-- Core Medi Smart Application Container -->
+  <div id="app"></div>
+  
+  <script type="module" src="/src/app.js"></script>
+</body>
+</html>
+

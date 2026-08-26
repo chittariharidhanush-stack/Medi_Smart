@@ -27,21 +27,24 @@ Roles: Patient, Doctor, Hospital, Platform Administrator.
 - Emergency routing to the nearest configured hospital using Haversine distance.
 - In-memory demo data (restarts reset data).
 
-## Run Locally
-To run the full-stack app locally using the unified server:
+## Run
+Terminal 1:
 ```powershell
+cd backend
+npm install
+npm start
+```
+
+Terminal 2:
+```powershell
+cd frontend
 npm install
 npm run dev
 ```
 
 Open http://localhost:5173
-Backend health: http://localhost:5173/api/health
 
-## Vercel Deployment
-This project is configured for Vercel deployment. You can deploy it using the Vercel CLI:
-```powershell
-npx vercel
-```
+Backend health: http://127.0.0.1:4000/api/health
 
 ## Demo accounts
 - Patient: patient@medismart.local / Patient@123

@@ -1,0 +1,12 @@
+{
+  "name": "medi-smart-backend",
+  "version": "2.0.0",
+  "private": true,
+  "description": "Medi Smart dependency-free Node.js API",
+  "main": "server.js",
+  "scripts": {
+    "start": "node server.js",
+    "dev": "node --watch server.js",
+    "check": "node --check server.js"
+  }
+}
