@@ -4,7 +4,7 @@ import { initStaggeredMenu } from './components/StaggeredMenu.js';
 import { renderDashboard12, initDashboard12 } from './components/Dashboard12.js';
 import { renderHospitalDashboard, initHospitalDashboard } from './components/HospitalDashboard.js';
 
-const API = window.__MEDI_API__ || 'http://localhost:4000/api';
+const API = window.__MEDI_API__ || (window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1' ? 'http://localhost:4000/api' : '/api');
 const app = document.getElementById('app');
 const savedPrefs = JSON.parse(localStorage.getItem('medi_accessibility') || '{}');
 
