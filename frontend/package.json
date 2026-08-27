@@ -2,6 +2,7 @@
   "name": "medi-smart-frontend",
   "version": "2.0.0",
   "private": true,
+  "type": "module",
   "description": "Medi Smart dependency-free accessible frontend",
   "scripts": {
     "dev": "node dev-server.mjs",

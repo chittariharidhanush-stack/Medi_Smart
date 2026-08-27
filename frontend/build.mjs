@@ -7,5 +7,5 @@ await rm(dist, { recursive: true, force: true });
 await mkdir(dist, { recursive: true });
 await cp(resolve(root, 'index.html'), resolve(dist, 'index.html'));
 await cp(resolve(root, 'src'), resolve(dist, 'src'), { recursive: true });
-try { await cp(resolve(root, 'public'), resolve(dist, 'public'), { recursive: true }); } catch (e) {}
+await cp(resolve(root, 'public'), resolve(dist, 'public'), { recursive: true });
 console.log('Medi Smart frontend build completed successfully: dist/');

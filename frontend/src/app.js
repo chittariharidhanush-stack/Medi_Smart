@@ -1,6 +1,8 @@
 import { initStrands } from './components/Strands.js';
 import { initMagicBento } from './components/MagicBento.js';
 import { initStaggeredMenu } from './components/StaggeredMenu.js';
+import { renderDashboard12, initDashboard12 } from './components/Dashboard12.js';
+import { renderHospitalDashboard, initHospitalDashboard } from './components/HospitalDashboard.js';
 
 const API = window.__MEDI_API__ || 'http://localhost:4000/api';
 const app = document.getElementById('app');
@@ -319,33 +321,88 @@ window.generateAISummary = async function() {
   const output = document.getElementById('ai-output');
   if (!output) return;
   output.style.display = 'block';
-  output.innerHTML = "<div style='color:var(--accent); padding:10px;'>✨ AI Assistant is analyzing notes and generating clinical summary...</div>";
+  output.innerHTML = "<div style='color:var(--accent); padding:10px;'>✨ AI Assistant is analyzing patient history and generating comprehensive summary...</div>";
+
+  // Get selected patient ID from consultation appointment selector
+  const apptSelect = document.getElementById('consult-appt');
+  let patientId = '';
+  if (apptSelect) {
+    const selectedAppt = (state.data.appointments || []).find(a => a.id === apptSelect.value);
+    if (selectedAppt) patientId = selectedAppt.patientId;
+  }
 
   try {
-    const res = await api('/ai/summarize', { method: 'POST', body: JSON.stringify({ notes }) });
+    const res = await api('/ai/summarize', { method: 'POST', body: JSON.stringify({ notes, patientId }) });
     const data = res.data;
+    const po = data.patientOverview;
     output.innerHTML = `
       <div class="ai-result-box">
-        <div class="ai-header-tag">🤖 AI Clinical Summary Generated</div>
-        <div class="ai-section-item">
-          <strong>📋 Visit Summary:</strong>
-          <p>${esc(data.visit_summary)}</p>
+        <div class="ai-header-tag">🤖 AI Patient History Summary</div>
+        <div class="ai-disclaimer">
+          <em>⚠️ ${esc(data.disclaimer || 'For reference only. Clinical judgment required.')}</em>
         </div>
+
+        ${po ? `<div class="ai-section-item">
+          <strong>👤 1. Patient Overview</strong>
+          <div class="ai-detail-grid">
+            <span><b>Name:</b> ${esc(po.name)}</span>
+            <span><b>Blood Group:</b> ${esc(po.bloodGroup)}</span>
+            <span><b>Allergies:</b> <span class="ai-alert-text">${esc(po.allergies)}</span></span>
+            <span><b>Conditions:</b> ${esc(po.conditions)}</span>
+            <span><b>Total Visits:</b> ${po.totalVisits}</span>
+            <span><b>Total Rx:</b> ${po.totalPrescriptions}</span>
+          </div>
+        </div>` : ''}
+
         <div class="ai-section-item">
-          <strong>🔍 Key Observations:</strong>
-          <p>${esc(data.key_observations)}</p>
+          <strong>📋 2. Previous Visit Summary</strong>
+          ${(data.previousVisits || []).length ? data.previousVisits.map(v => `
+            <div class="ai-visit-row">
+              <span class="ai-visit-date">${esc(v.date)}</span>
+              <span>Dr. ${esc(v.doctor)} · ${esc(v.department)}</span>
+              <span><b>Reason:</b> ${esc(v.reason)}</span>
+              <span><b>Diagnosis:</b> ${esc(v.diagnosis)}</span>
+            </div>
+          `).join('') : '<p class="ai-empty">No previous visits recorded.</p>'}
         </div>
+
         <div class="ai-section-item">
-          <strong>⏰ Follow-up & Recommendations:</strong>
-          <p>${esc(data.follow_up_reminder)}</p>
+          <strong>🔄 3. Frequently Reported Issues</strong>
+          ${(data.frequentIssues || []).length ? `<div class="ai-freq-pills">${data.frequentIssues.map(i => `<span class="ai-freq-pill">${esc(i.issue)} <b>(${i.count}x)</b></span>`).join('')}</div>` : '<p class="ai-empty">Not enough data to identify patterns.</p>'}
         </div>
+
+        <div class="ai-section-item">
+          <strong>🩺 4. Current Consultation Summary</strong>
+          <p>${esc(data.currentConsultation)}</p>
+        </div>
+
+        <div class="ai-section-item">
+          <strong>🔁 5. Follow-Up History</strong>
+          ${(data.followUpHistory || []).length ? data.followUpHistory.map(f => `
+            <div class="ai-visit-row">
+              <span class="ai-visit-date">${esc(f.date)}</span>
+              <span>${esc(f.department)} — ${esc(f.diagnosis)}</span>
+            </div>
+          `).join('') : '<p class="ai-empty">No follow-up history available.</p>'}
+        </div>
+
+        <div class="ai-section-item">
+          <strong>⚠️ 6. Important Medical Notes</strong>
+          ${(data.importantNotes || []).map(n => `<div class="ai-important-note">${esc(n)}</div>`).join('')}
+        </div>
+
+        ${(data.previousPrescriptions || []).length ? `<div class="ai-section-item">
+          <strong>💊 Previous Prescriptions</strong>
+          ${data.previousPrescriptions.map(p => `
+            <div class="ai-visit-row">
+              <span class="ai-visit-date">${esc(p.date)}</span>
+              <span>Dr. ${esc(p.doctor)}: ${esc(p.medicines)}</span>
+            </div>
+          `).join('')}
+        </div>` : ''}
       </div>
     `;
-    const diag = document.getElementById('diagnosis');
-    const treat = document.getElementById('treatment');
-    if (diag && !diag.value) diag.value = data.key_observations;
-    if (treat && !treat.value) treat.value = `${data.visit_summary} ${data.follow_up_reminder}`;
-    showNotification("AI Summary & Observations auto-filled.");
+    showNotification("AI Patient History Summary generated successfully.");
   } catch (e) {
     output.innerHTML = `<div class="error">${esc(e.message)}</div>`;
   }
@@ -641,6 +698,7 @@ function renderAIChatWidget() {
 }
 
 function langControls() {
+  const hideAccessibility = state.user && (state.user.role === 'admin' || state.user.role === 'hospital');
   return `
     <div class="access-tools">
       <label class="select-tool">
@@ -649,6 +707,7 @@ function langControls() {
           ${Object.entries(langs).map(([k, v]) => `<option value="${k}" ${state.lang === k ? 'selected' : ''}>${v.name}</option>`).join('')}
         </select>
       </label>
+      ${!hideAccessibility ? `
       <label class="select-tool">
         <span>♿ ${t('accessibility')}</span>
         <select id="disability-select" aria-label="${t('disability')}">
@@ -658,6 +717,7 @@ function langControls() {
           <option value="motor" ${state.disability === 'motor' ? 'selected' : ''}>${t('motor')}</option>
         </select>
       </label>
+      ` : ''}
     </div>
   `;
 }
@@ -692,27 +752,24 @@ const patientNavList = [
 ];
 
 const hospitalNavList = [
-  { id: 'overview', icon: '📊', label: 'Overview', desc: 'Hospital statistics & occupancy' },
-  { id: 'doctors', icon: '🩺', label: 'Doctors', desc: 'Hospital medical staff directory' },
-  { id: 'patients', icon: '👥', label: 'Patients', desc: 'Registered patients database' },
+  { id: 'overview', icon: '📊', label: 'Overview', desc: 'Hospital bed capacity, live analytics & telemetry' },
+  { id: 'manage-doctors', icon: '🩺', label: 'Manage Doctors', desc: 'Add, approve, suspend & manage doctors' },
+  { id: 'doctors', icon: '📋', label: 'Doctors Directory', desc: 'Hospital medical staff directory' },
+  { id: 'schedules', icon: '🗓️', label: 'Schedules & Slots', desc: 'Doctor availability & consultation slots' },
+  { id: 'patients', icon: '👥', label: 'Patients & Admissions', desc: 'Live patient entry, triage & admission logs' },
   { id: 'appointments', icon: '📅', label: 'Appointments', desc: 'Departmental booking logs' },
-  { id: 'departments', icon: '🏢', label: 'Departments', desc: 'Cardiology, Neurology, ER, etc.' },
-  { id: 'emergency', icon: '🚨', label: 'Emergency Cases', desc: 'Incoming SOS alerts & dispatch' },
-  { id: 'reports', icon: '📈', label: 'Reports & Analytics', desc: 'Hospital operation reports' },
+  { id: 'activity', icon: '📡', label: 'Activity Tracking', desc: 'Doctor & patient login/logout tracking' },
+  { id: 'departments', icon: '🏢', label: 'Departments & Wards', desc: 'ICU, ER Trauma, Cardiology, General Ward' },
+  { id: 'reports', icon: '📈', label: 'Reports & Analytics', desc: 'Hospital operational & patient inflow trends' },
   { id: 'profile', icon: '👤', label: 'Hospital Profile', desc: 'Address, GPS & emergency hotlines' },
-  { id: 'settings', icon: '⚙️', label: 'Settings', desc: 'Alert & notification thresholds' }
+  { id: 'settings', icon: '⚙️', label: 'Settings', desc: 'Capacity thresholds & notifications' }
 ];
 
 const adminNavList = [
-  { id: 'overview', icon: '📊', label: 'Overview', desc: 'System-wide analytics & health' },
+  { id: 'overview', icon: '📊', label: 'Overview', desc: 'Hospital status & website telemetry dashboard' },
   { id: 'users', icon: '👥', label: 'Users Management', desc: 'All platform accounts & roles' },
-  { id: 'patients', icon: '🧑‍🦽', label: 'Patients', desc: 'Registered patient directory' },
-  { id: 'doctors', icon: '🩺', label: 'Doctors', desc: 'Verified doctor credentials' },
-  { id: 'hospitals', icon: '🏥', label: 'Hospitals', desc: 'Authorized emergency hospital nodes' },
-  { id: 'appointments', icon: '📅', label: 'Appointments', desc: 'Central consultation records' },
-  { id: 'records', icon: '📄', label: 'Medical Records', desc: 'Encrypted EHR vault' },
-  { id: 'prescriptions', icon: '💊', label: 'Prescriptions', desc: 'Digital prescriptions audit' },
-  { id: 'emergency', icon: '🚨', label: 'Emergency Cases', desc: 'GPS emergency dispatch logs' },
+  { id: 'hospitals', icon: '🏥', label: 'Hospital Management', desc: 'Create, edit & manage hospital accounts' },
+  { id: 'activity', icon: '📡', label: 'Activity Logs', desc: 'Platform-wide login & activity monitoring' },
   { id: 'reports', icon: '📈', label: 'Reports & Analytics', desc: 'Platform growth & response metrics' },
   { id: 'settings', icon: '⚙️', label: 'Settings', desc: 'Global platform configurations' }
 ];
@@ -741,7 +798,6 @@ function header() {
 
       <div class="top-tools">
         ${langControls()}
-        <button class="glass-btn" onclick="toggleAIChat()" aria-label="Medi-AI Assistant">✨ ${t('aiAssistant')}</button>
         <button class="glass-btn" data-action="voice" aria-label="${t('voice')}">🎙 ${t('voice')}</button>
         ${state.user ? `
           <span class="user-chip">${roles[state.user.role]?.icon || '👤'} ${esc(state.user.name)}</span>
@@ -844,11 +900,30 @@ function demoFor(role) {
     doctor: 'doctor@medismart.local / Doctor@123',
     hospital: 'hospital@medismart.local / Hospital@123',
     admin: 'admin@medismart.local / Admin@123'
-  })[role];
+  })[role] || 'patient@medismart.local / Patient@123';
 }
 
+window.fillDemoLogin = function(role) {
+  const demoAccounts = {
+    patient: { email: 'patient@medismart.local', pass: 'Patient@123' },
+    doctor: { email: 'doctor@medismart.local', pass: 'Doctor@123' },
+    hospital: { email: 'hospital@medismart.local', pass: 'Hospital@123' },
+    admin: { email: 'admin@medismart.local', pass: 'Admin@123' }
+  };
+  const currentRole = role || state.role || 'patient';
+  const acc = demoAccounts[currentRole] || demoAccounts.patient;
+  const emailEl = document.getElementById('email');
+  const passEl = document.getElementById('password');
+  if (emailEl) emailEl.value = acc.email;
+  if (passEl) passEl.value = acc.pass;
+  showNotification(`Auto-filled ${currentRole} demo credentials!`);
+};
+
 function login() {
-  const r = roles[state.role];
+  const roleKey = state.role && roles[state.role] ? state.role : 'patient';
+  if (!state.role) state.role = roleKey;
+  const r = roles[roleKey];
+
   return `
     ${header()}
     <main class="center-page">
@@ -860,11 +935,18 @@ function login() {
         <p>${r.desc}</p>
         <div id="error" aria-live="assertive"></div>
         <form id="login-form">
-          <label>${t('email')}<input id="email" type="email" required autocomplete="username"></label>
-          <label>${t('password')}<input id="password" type="password" required autocomplete="current-password"></label>
-          <button class="primary" type="submit">${t('signIn')} →</button>
+          <label>${t('email')}
+            <input id="email" name="email" type="email" required autocomplete="username" placeholder="user@medismart.local">
+          </label>
+          <label>${t('password')}
+            <input id="password" name="password" type="password" required autocomplete="current-password" placeholder="••••••••">
+          </label>
+          <button class="primary" type="submit" id="btn-login-submit">${t('signIn')} →</button>
         </form>
-        <div class="demo">Demo: ${demoFor(state.role)}</div>
+        <div class="demo" style="margin-top:14px; padding:12px 14px; background:rgba(35,215,197,0.06); border:1px dashed rgba(35,215,197,0.4); border-radius:12px; display:flex; justify-content:space-between; align-items:center; flex-wrap:wrap; gap:8px;">
+          <span style="font-size:12.5px; color:#c9d8e8;">🔑 <b>Demo:</b> ${demoFor(roleKey)}</span>
+          <button type="button" class="mini primary" onclick="fillDemoLogin('${roleKey}')">⚡ Auto Fill</button>
+        </div>
       </div>
     </main>
   `;
@@ -929,7 +1011,7 @@ function patientContent() {
 
           <form id="book-form" class="form-grid">
             <label>Select Specialist Doctor
-              <select id="doctor" required>
+              <select id="doctor" required onchange="onDoctorSelectChange(this.value)">
                 ${(d.doctors || []).map(x => `<option value="${x.id}">${esc(x.name)} · ${esc(x.specialization || x.department)}</option>`).join('')}
               </select>
             </label>
@@ -937,11 +1019,22 @@ function patientContent() {
               <input id="department" required value="${esc(d.doctors?.[0]?.department || 'General Medicine')}">
             </label>
             <label>Preferred Date
-              <input id="date" type="date" required value="${new Date().toISOString().slice(0, 10)}">
+              <input id="date" type="date" required value="${new Date().toISOString().slice(0, 10)}" onchange="onDoctorSelectChange()">
             </label>
             <label>Preferred Time Slot
               <input id="time" type="time" required value="10:30">
             </label>
+            <div class="wide" id="slot-picker-container">
+              <label style="font-size:12px; color:var(--muted); margin-bottom:6px; display:block;">Hospital-Approved Available Slots (Click to Select):</label>
+              <div style="display:flex; flex-wrap:wrap; gap:8px;" id="available-slot-buttons">
+                <button type="button" class="mini" onclick="document.getElementById('time').value='09:00'">09:00 AM</button>
+                <button type="button" class="mini" onclick="document.getElementById('time').value='09:30'">09:30 AM</button>
+                <button type="button" class="mini primary" onclick="document.getElementById('time').value='10:30'">10:30 AM</button>
+                <button type="button" class="mini" onclick="document.getElementById('time').value='11:00'">11:00 AM</button>
+                <button type="button" class="mini" onclick="document.getElementById('time').value='14:00'">02:00 PM</button>
+                <button type="button" class="mini" onclick="document.getElementById('time').value='15:30'">03:30 PM</button>
+              </div>
+            </div>
             <label class="wide">Symptoms / Reason for Visit
               <textarea id="reason" placeholder="Describe your symptoms or reason for medical consultation..." required></textarea>
             </label>
@@ -1009,17 +1102,27 @@ function patientContent() {
     case 'appointments':
       return table(
         t('appointments'),
-        ['Doctor', 'Date', 'Time', 'Department', 'Reason', 'Status', 'Action'],
+        ['Doctor', 'Date', 'Time Slot', 'Department', 'Reason / Symptoms', 'Status', 'Action'],
         (d.appointments || []).map(a => `
-          <tr>
-            <td><b>${esc(a.doctor?.name || 'Assigned Doctor')}</b></td>
+          <tr style="${a.status === 'confirmed' ? 'background:rgba(16,185,129,0.06);' : a.status === 'pending' ? 'background:rgba(245,158,11,0.05);' : ''}">
+            <td><b>🩺 ${esc(a.doctor?.name || 'Assigned Doctor')}</b></td>
             <td>${a.date}</td>
-            <td>${a.time}</td>
+            <td><b>${a.time}</b></td>
             <td>${esc(a.department)}</td>
             <td>${esc(a.reason || 'Routine Visit')}</td>
-            <td><span class="status-pill ${a.status}">${a.status}</span></td>
             <td>
-              <button class="mini" onclick="state.section='video'; render();">🎥 Video Consult</button>
+              <span class="status-pill ${a.status === 'confirmed' ? 'confirmed' : a.status === 'pending' ? 'pending' : 'cancelled'}" style="${a.status === 'confirmed' ? 'box-shadow:0 0 10px rgba(16,185,129,0.4); font-weight:700;' : ''}">
+                ${a.status === 'confirmed' ? '✅ Confirmed' : a.status === 'pending' ? '⏳ Pending Doctor Confirmation' : a.status}
+              </span>
+            </td>
+            <td>
+              ${a.status === 'confirmed' ? `
+                <button class="mini primary" onclick="state.section='video'; render();">🎥 Join Video Room</button>
+              ` : a.status === 'pending' ? `
+                <span style="font-size:12px; color:#f59e0b; font-weight:600;">⚡ Doctor Reviewing Request</span>
+              ` : `
+                <span style="font-size:12px; color:var(--muted);">${a.status}</span>
+              `}
             </td>
           </tr>
         `)
@@ -1143,17 +1246,24 @@ function patientContent() {
               <h2>📅 Upcoming Appointments</h2>
               <button class="mini" onclick="state.section='book'; render();">+ Book New</button>
             </div>
-            ${(d.appointments || []).slice(0, 3).map(a => `
-              <div class="list-row">
+            ${(d.appointments || []).slice(0, 4).map(a => `
+              <div class="list-row" style="${a.status === 'confirmed' ? 'border-left:3px solid #10b981;' : a.status === 'pending' ? 'border-left:3px solid #f59e0b;' : ''}">
                 <div>
-                  <b>${esc(a.doctor?.name || 'Specialist Doctor')}</b>
-                  <small style="display:block; color:var(--muted);">${esc(a.department)}</small>
+                  <b>🩺 ${esc(a.doctor?.name || 'Specialist Doctor')}</b>
+                  <small style="display:block; color:var(--muted);">${esc(a.department)} · ${a.date} at ${a.time}</small>
                 </div>
-                <span>${a.date} · ${a.time}</span>
-                <button class="mini" onclick="state.section='video'; render();">🎥 Video Consult</button>
+                <span class="status-pill ${a.status === 'confirmed' ? 'confirmed' : a.status === 'pending' ? 'pending' : 'cancelled'}" style="${a.status === 'confirmed' ? 'box-shadow:0 0 8px rgba(16,185,129,0.35); font-weight:700;' : ''}">
+                  ${a.status === 'confirmed' ? '✅ Confirmed' : a.status === 'pending' ? '⏳ Pending' : a.status}
+                </span>
+                ${a.status === 'confirmed' ? `
+                  <button class="mini primary" onclick="state.section='video'; render();">🎥 Video</button>
+                ` : `
+                  <button class="mini" onclick="state.section='appointments'; render();">View</button>
+                `}
               </div>
             `).join('') || '<p class="empty">No upcoming appointments scheduled.</p>'}
             <div style="margin-top:15px; display:flex; gap:10px;">
+              <button class="glass-btn" onclick="state.section='appointments'; render();">📅 All Appointments</button>
               <button class="glass-btn" onclick="state.section='video'; render();">🎥 Join Video Room</button>
               <button class="glass-btn" onclick="state.section='qrcard'; render();">💳 My QR Badge</button>
             </div>
@@ -1176,7 +1286,7 @@ function patientContent() {
 function doctorContent() {
   const d = state.data;
   const todayDateStr = new Date().toISOString().slice(0, 10);
-  const todaysList = (d.appointments || []).filter(a => a.date === todayDateStr || true);
+  const todaysList = (d.appointments || []).filter(a => a.date === todayDateStr || a.status === 'pending' || a.status === 'confirmed');
 
   switch (state.section) {
     case 'today':
@@ -1184,17 +1294,20 @@ function doctorContent() {
         <section class="panel">
           <div class="panel-head">
             <div>
-              <h2>📅 Today's Clinical Schedule & Appointments</h2>
-              <p style="color:var(--muted); margin:0;">Active patient queue and consultation workflow for today.</p>
+              <h2>📅 Today's Clinical Schedule & Patient Requests</h2>
+              <p style="color:var(--muted); margin:0;">Real-time queue of patient requests, confirmed slots, and consultation workflow.</p>
             </div>
-            <button class="primary" onclick="state.section='consult'; render();">🩺 Open AI Consultation Assistant</button>
+            <div style="display:flex; gap:10px; align-items:center;">
+              <span class="status-pill pending" style="font-weight:700; font-size:12px;">⚡ ${todaysList.filter(a => a.status === 'pending').length} Pending Requests</span>
+              <button class="primary mini" onclick="state.section='consult'; render();">🩺 AI Consultation Studio</button>
+            </div>
           </div>
           <div class="table-wrap" style="margin-top:15px;">
             <table>
               <thead>
                 <tr>
                   <th>Patient Name</th>
-                  <th>Time Slot</th>
+                  <th>Date & Time Slot</th>
                   <th>Department</th>
                   <th>Reason / Symptoms</th>
                   <th>Status</th>
@@ -1203,17 +1316,32 @@ function doctorContent() {
               </thead>
               <tbody>
                 ${todaysList.map(a => `
-                  <tr>
-                    <td><b>${esc(a.patient?.name || 'Rahul Kumar')}</b></td>
-                    <td>${a.time}</td>
+                  <tr style="${a.status === 'pending' ? 'background:rgba(245,158,11,0.08); border-left:3px solid #f59e0b;' : a.status === 'confirmed' ? 'background:rgba(34,211,238,0.04); border-left:3px solid #22d3ee;' : ''}">
+                    <td>
+                      <b>🧑‍🦽 ${esc(a.patient?.name || 'Patient')}</b>
+                      ${a.status === 'pending' ? `<span style="display:block; font-size:11px; color:#f59e0b; font-weight:700;">⚡ New Patient Request</span>` : ''}
+                    </td>
+                    <td>
+                      <b>${a.time}</b>
+                      <small style="display:block; color:var(--muted); font-size:11.5px;">${a.date === todayDateStr ? '📅 Today' : a.date}</small>
+                    </td>
                     <td>${esc(a.department)}</td>
                     <td>${esc(a.reason || 'General Checkup')}</td>
-                    <td><span class="status-pill ${a.status}">${a.status}</span></td>
                     <td>
-                      <button class="mini" onclick="updateAppt('${a.id}', 'confirmed')">Confirm</button>
-                      <button class="mini" onclick="state.section='consult'; render();">🩺 Consult</button>
-                      <button class="mini" onclick="state.section='video'; render();">🎥 Video</button>
-                      <button class="mini" onclick="updateAppt('${a.id}', 'completed')">Done</button>
+                      <span class="status-pill ${a.status === 'confirmed' ? 'confirmed' : a.status === 'pending' ? 'pending' : a.status === 'completed' ? 'confirmed' : 'cancelled'}" style="${a.status === 'confirmed' ? 'box-shadow:0 0 10px rgba(34,211,238,0.3); font-weight:700;' : ''}">
+                        ${a.status === 'confirmed' ? '✅ Confirmed' : a.status === 'pending' ? '⏳ Pending Confirmation' : a.status}
+                      </span>
+                    </td>
+                    <td style="display:flex; gap:6px; flex-wrap:wrap; align-items:center;">
+                      ${a.status === 'pending' ? `
+                        <button class="mini primary" style="background:#10b981; border-color:#059669; color:#fff; font-weight:700;" onclick="updateAppt('${a.id}', 'confirmed')">✅ Confirm Request</button>
+                        <button class="mini" style="color:#ef4444;" onclick="updateAppt('${a.id}', 'cancelled')">❌ Decline</button>
+                      ` : ''}
+                      ${a.status === 'confirmed' ? `
+                        <button class="mini" onclick="state.section='consult'; render();">🩺 Consult</button>
+                        <button class="mini" onclick="state.section='video'; render();">🎥 Video</button>
+                        <button class="mini" onclick="updateAppt('${a.id}', 'completed')">Done</button>
+                      ` : ''}
                     </td>
                   </tr>
                 `).join('') || `<tr><td colspan="6" class="empty">No appointments scheduled for today.</td></tr>`}
@@ -1261,25 +1389,53 @@ function doctorContent() {
     case 'video':
       return `
         <section class="panel">
-          <h2>🎥 Doctor Video Consultation Room (WebRTC Telemedicine)</h2>
-          <p>Connect live HD audio & video stream with remote patient during telemedicine sessions.</p>
-          <div class="video-consult-container">
-            <div class="video-grid">
-              <div class="video-box-wrap">
-                <video id="local-video" autoplay playsinline muted style="display:none;"></video>
-                <div id="video-placeholder" class="video-placeholder">
-                  <span>🩺</span>
-                  <b>Doctor Video Feed Standby</b>
-                  <small>Click "Start Camera" below to initiate video session</small>
+          <div class="panel-head">
+            <div>
+              <h2>🎥 Doctor Telemedicine & Clinical Context Studio</h2>
+              <p style="color:var(--muted); margin:0;">Live WebRTC consultation feed with simultaneous patient history, allergies, and EHR summary.</p>
+            </div>
+            <button class="primary mini" onclick="loadPatientContextForVideo()">🔄 Refresh Patient Context</button>
+          </div>
+
+          <div style="display:grid; grid-template-columns:1.1fr 0.9fr; gap:20px; margin-top:16px; align-items:start;" class="telemed-studio-grid">
+            <div class="video-consult-container">
+              <div class="video-grid">
+                <div class="video-box-wrap">
+                  <video id="local-video" autoplay playsinline muted style="display:none;"></video>
+                  <div id="video-placeholder" class="video-placeholder">
+                    <span>🩺</span>
+                    <b>Doctor Video Feed Standby</b>
+                    <small>Click "Start Camera Feed" below to connect with patient</small>
+                  </div>
+                  <div class="video-label" id="video-status">Standby</div>
                 </div>
-                <div class="video-label" id="video-status">Standby</div>
+              </div>
+              <div class="video-controls" style="margin-top:12px;">
+                <button class="primary" onclick="startVideoCall()">📹 Start Camera Feed</button>
+                <button class="glass-btn" id="btn-mute" onclick="toggleMute()">🎙️ Mute Mic</button>
+                <button class="glass-btn" id="btn-cam" onclick="toggleVideo()">📷 Toggle Video</button>
+                <button class="danger" onclick="stopVideoCall()">🔴 End Call</button>
               </div>
             </div>
-            <div class="video-controls">
-              <button class="primary" onclick="startVideoCall()">📹 Start Camera Feed</button>
-              <button class="glass-btn" id="btn-mute" onclick="toggleMute()">🎙️ Mute Mic</button>
-              <button class="glass-btn" id="btn-cam" onclick="toggleVideo()">📷 Toggle Video</button>
-              <button class="danger" onclick="stopVideoCall()">🔴 End Call</button>
+
+            <div class="patient-context-panel" style="background:rgba(13,27,46,0.92); border:1px solid rgba(35,215,197,0.35); border-radius:18px; padding:18px; box-shadow:0 15px 40px rgba(0,0,0,0.35);">
+              <h3 style="margin:0 0 10px; color:var(--accent); display:flex; align-items:center; gap:8px;">
+                <span>📋</span> Patient Consultation Context
+              </h3>
+              
+              <div style="margin-bottom:14px;">
+                <label style="font-size:12px; color:#c9d8e8; font-weight:700; display:block; margin-bottom:5px;">Select Patient in Call:
+                  <select id="video-patient-select" style="width:100%; padding:10px; background:#071522; border:1px solid var(--line); color:#fff; border-radius:10px;" onchange="loadPatientContextForVideo(this.value)">
+                    ${(d.appointments || []).map(a => `<option value="${a.patientId}">${esc(a.patient?.name || 'Patient')} · ${a.date} (${esc(a.reason || 'Consultation')})</option>`).join('') || '<option value="">No active patient</option>'}
+                  </select>
+                </label>
+              </div>
+
+              <div id="video-patient-context-body">
+                <div style="padding:20px; text-align:center; color:var(--muted); font-size:13px;">
+                  Select a patient above or click refresh to load full EHR history.
+                </div>
+              </div>
             </div>
           </div>
         </section>
@@ -1565,42 +1721,297 @@ function queuePatientsCount(d) {
 function hospitalContent() {
   const d = state.data;
   switch (state.section) {
-    case 'doctors':
-      return table('Hospital Doctors Directory', ['Doctor Name', 'Department', 'Specialization', 'Status'], (d.doctors || []).map(doc => `
-        <tr><td><b>🩺 ${esc(doc.name)}</b></td><td>${esc(doc.department)}</td><td>${esc(doc.specialization)}</td><td><span class="status-pill confirmed">Active</span></td></tr>
-      `));
-    case 'patients':
-      return table('Connected Patients', ['Patient Name', 'Phone', 'Blood Group', 'Action'], (d.patients || []).map(p => `
-        <tr><td><b>🧑‍🦽 ${esc(p.name)}</b></td><td>${esc(p.phone || '9000000000')}</td><td>${esc(p.bloodGroup || 'O+')}</td><td><button class="mini" onclick="alert('Viewing patient file: ${esc(p.name)}')">View</button></td></tr>
-      `));
-    case 'departments':
+    case 'manage-doctors':
       return `
         <section class="panel">
-          <h2>🏢 Hospital Medical Departments</h2>
-          <div style="display:grid; grid-template-columns:repeat(auto-fit, minmax(220px, 1fr)); gap:14px; margin-top:16px;">
-            <div class="metric"><div class="metric-icon">❤️</div><div><strong>Cardiology</strong><span>4 Doctors · 12 Beds</span></div></div>
-            <div class="metric"><div class="metric-icon">🧠</div><div><strong>Neurology</strong><span>2 Doctors · 8 Beds</span></div></div>
-            <div class="metric"><div class="metric-icon">👶</div><div><strong>Pediatrics</strong><span>3 Doctors · 15 Beds</span></div></div>
-            <div class="metric"><div class="metric-icon">🚨</div><div><strong>Emergency / Trauma</strong><span>24/7 Active Dispatch</span></div></div>
+          <div class="panel-head">
+            <div>
+              <h2>🩺 Manage Hospital Doctors</h2>
+              <p style="color:var(--muted); margin:0;">Add new doctors, approve registrations, suspend or remove doctor accounts.</p>
+            </div>
+          </div>
+
+          <div class="ai-assistant-bar" style="margin:16px 0; padding:18px; background:rgba(35,215,197,0.08); border:1px solid rgba(35,215,197,0.3); border-radius:14px;">
+            <h3 style="margin:0 0 14px; color:var(--accent);">➕ Add New Doctor</h3>
+            <form id="add-doctor-form" class="form-grid">
+              <label>Doctor Full Name<input id="doc-name" placeholder="Dr. Full Name" required></label>
+              <label>Email Address<input id="doc-email" type="email" placeholder="doctor@email.com" required></label>
+              <label>Password<input id="doc-password" type="password" placeholder="Min 8 characters" required></label>
+              <label>Phone<input id="doc-phone" placeholder="Phone number"></label>
+              <label>Specialization<input id="doc-specialization" placeholder="e.g., Cardiology"></label>
+              <label>Department
+                <select id="doc-department">
+                  <option>General Medicine</option><option>Cardiology</option><option>Neurology</option>
+                  <option>Dermatology</option><option>Pediatrics</option><option>Orthopedics</option>
+                  <option>ENT</option><option>Ophthalmology</option><option>Psychiatry</option>
+                  <option>Oncology</option><option>Emergency</option>
+                </select>
+              </label>
+              <label>Initial Status
+                <select id="doc-status">
+                  <option value="approved">Approved (Active immediately)</option>
+                  <option value="pending">Pending (Needs approval)</option>
+                </select>
+              </label>
+              <div class="wide"><button class="primary" type="submit">➕ Add Doctor to Hospital</button></div>
+            </form>
+          </div>
+
+          <div class="table-wrap" style="margin-top:15px;">
+            <table>
+              <thead>
+                <tr><th>Doctor Name</th><th>Email</th><th>Department</th><th>Specialization</th><th>Status</th><th>Actions</th></tr>
+              </thead>
+              <tbody>
+                ${(d.doctors || []).map(doc => `
+                  <tr>
+                    <td><b>🩺 ${esc(doc.name)}</b></td>
+                    <td>${esc(doc.email)}</td>
+                    <td>${esc(doc.department || 'Unassigned')}</td>
+                    <td>${esc(doc.specialization || '-')}</td>
+                    <td><span class="status-pill ${doc.status === 'approved' ? 'confirmed' : doc.status === 'suspended' ? 'cancelled' : 'pending'}">${esc(doc.status || 'active')}</span></td>
+                    <td style="display:flex; gap:6px; flex-wrap:wrap;">
+                      ${doc.status !== 'approved' ? `<button class="mini" onclick="manageDoctorStatus('${doc.id}', 'approved')">✅ Approve</button>` : ''}
+                      ${doc.status !== 'suspended' ? `<button class="mini" onclick="manageDoctorStatus('${doc.id}', 'suspended')">⛔ Suspend</button>` : ''}
+                      ${doc.status === 'suspended' ? `<button class="mini" onclick="manageDoctorStatus('${doc.id}', 'approved')">🔄 Reactivate</button>` : ''}
+                      <button class="mini" onclick="manageDoctorStatus('${doc.id}', 'rejected')" style="color:#ff4d67;">🗑 Remove</button>
+                    </td>
+                  </tr>
+                `).join('') || `<tr><td colspan="6" class="empty">No doctors in this hospital yet. Add one above.</td></tr>`}
+              </tbody>
+            </table>
           </div>
         </section>
       `;
-    case 'emergency':
-      return table('Emergency SOS Incident Log', ['Trigger', 'GPS Coordinates', 'Hospital Routing', 'Date & Time'], (d.emergencies || []).map(e => `
-        <tr><td>🚨 <b>${esc(e.trigger)}</b></td><td>${e.latitude ? `${e.latitude.toFixed(4)}, ${e.longitude.toFixed(4)}` : '17.3850, 78.4867'}</td><td><span class="status-pill ${e.status}">${e.status}</span></td><td>${esc(e.createdAt?.slice(0, 19))}</td></tr>
-      `));
-    default:
+
+    case 'schedules':
       return `
-        <div class="metrics">
-          ${card('Doctors', d.doctors?.length || 2, 'Hospital staff', '🩺')}
-          ${card('Patients', d.patients?.length || 5, 'Admitted / Active', '👥')}
-          ${card('Appointments', d.appointments?.length || 3, 'Total bookings', '📅')}
-          ${card('Emergency Alerts', (d.emergencies || []).length, 'GPS hospital dispatches', '🚨')}
-        </div>
-        ${table('Recent Hospital Appointments', ['Doctor', 'Date', 'Time', 'Department', 'Status'], (d.appointments || []).slice(0, 6).map(a => `
-          <tr><td>${esc(a.doctor?.name)}</td><td>${a.date}</td><td>${a.time}</td><td>${esc(a.department)}</td><td>${a.status}</td></tr>
-        `))}
+        <section class="panel">
+          <div class="panel-head">
+            <div>
+              <h2>🗓️ Doctor Schedule & Slot Management</h2>
+              <p style="color:var(--muted); margin:0;">Manage doctor availability, consultation time slots, and online consultation timings.</p>
+            </div>
+          </div>
+
+          <div style="margin:16px 0;">
+            <label style="color:#c9d8e8; font-weight:700; font-size:13px;">Select Doctor
+              <select id="schedule-doctor" style="width:100%; margin-top:7px; background:#071522; border:1px solid var(--line); color:white; border-radius:11px; padding:13px;" onchange="loadDoctorSchedule()">
+                <option value="">-- Select a Doctor --</option>
+                ${(d.doctors || []).filter(doc => doc.status === 'approved').map(doc => `<option value="${doc.id}">${esc(doc.name)} — ${esc(doc.department || 'General')}</option>`).join('')}
+              </select>
+            </label>
+          </div>
+
+          <div id="schedule-content">
+            <div class="empty" style="padding:30px; text-align:center; color:var(--muted);">Select a doctor above to view and manage their schedule.</div>
+          </div>
+
+          <div style="margin-top:20px; padding:16px; background:rgba(35,215,197,0.06); border:1px solid rgba(35,215,197,0.2); border-radius:14px;">
+            <h3 style="margin:0 0 12px; color:var(--accent);">➕ Add Quick Slot</h3>
+            <form id="add-slot-form" class="form-grid">
+              <label>Day
+                <select id="slot-day">
+                  <option>monday</option><option>tuesday</option><option>wednesday</option>
+                  <option>thursday</option><option>friday</option><option>saturday</option><option>sunday</option>
+                </select>
+              </label>
+              <label>Start Time<input id="slot-start" type="time" value="09:00" required></label>
+              <label>End Time<input id="slot-end" type="time" value="09:30" required></label>
+              <label>Type
+                <select id="slot-type">
+                  <option value="in-person">In-Person</option>
+                  <option value="online">Online Consultation</option>
+                </select>
+              </label>
+              <div class="wide"><button class="primary" type="submit">➕ Add Slot to Schedule</button></div>
+            </form>
+          </div>
+
+          ${(d.schedules || []).map(s => `
+            <div style="margin-top:20px;">
+              <h3 style="color:var(--accent);">📋 ${esc(s.doctor?.name || 'Doctor')} — Schedule</h3>
+              <div class="table-wrap">
+                <table>
+                  <thead><tr><th>Day</th><th>Start</th><th>End</th><th>Type</th><th>Status</th><th>Action</th></tr></thead>
+                  <tbody>
+                    ${(s.slots || []).slice(0, 30).map(slot => `
+                      <tr>
+                        <td style="text-transform:capitalize;">${esc(slot.day)}</td>
+                        <td>${esc(slot.startTime)}</td>
+                        <td>${esc(slot.endTime)}</td>
+                        <td><span class="type-pill">${esc(slot.type)}</span></td>
+                        <td><span class="status-pill ${slot.status === 'available' ? 'confirmed' : slot.status === 'disabled' ? 'cancelled' : 'pending'}">${esc(slot.status)}</span></td>
+                        <td>
+                          ${slot.status === 'available' ? `<button class="mini" onclick="updateSlotStatus('${slot.id}', 'disabled')">Disable</button> <button class="mini" onclick="updateSlotStatus('${slot.id}', 'blocked')">Block</button>` : `<button class="mini" onclick="updateSlotStatus('${slot.id}', 'available')">Enable</button>`}
+                        </td>
+                      </tr>
+                    `).join('')}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+          `).join('')}
+        </section>
       `;
+
+    case 'activity':
+      return `
+        <section class="panel">
+          <div class="panel-head">
+            <div>
+              <h2>📡 Activity Tracking Dashboard</h2>
+              <p style="color:var(--muted); margin:0;">Monitor doctor and patient login/logout activity and last active times.</p>
+            </div>
+          </div>
+
+          <h3 style="margin:20px 0 10px; color:var(--accent);">🩺 Doctor Activity</h3>
+          <div class="table-wrap">
+            <table>
+              <thead><tr><th>Doctor Name</th><th>Department</th><th>Login Time</th><th>Logout Time</th><th>Last Active</th><th>Status</th></tr></thead>
+              <tbody>
+                ${(d.doctorActivity || []).map(a => `
+                  <tr>
+                    <td><b>${esc(a.doctor?.name || 'Doctor')}</b></td>
+                    <td>${esc(a.doctor?.department || '-')}</td>
+                    <td>${a.activity?.loginTime ? new Date(a.activity.loginTime).toLocaleString() : '<span style="color:var(--muted);">Never</span>'}</td>
+                    <td>${a.activity?.logoutTime ? new Date(a.activity.logoutTime).toLocaleString() : '<span style="color:var(--muted);">—</span>'}</td>
+                    <td>${a.activity?.lastActiveTime ? new Date(a.activity.lastActiveTime).toLocaleString() : '<span style="color:var(--muted);">—</span>'}</td>
+                    <td><span class="status-pill ${a.activity?.loginTime && !a.activity?.logoutTime ? 'confirmed' : 'pending'}">${a.activity?.loginTime && (!a.activity?.logoutTime || a.activity.loginTime > a.activity.logoutTime) ? 'Online' : 'Offline'}</span></td>
+                  </tr>
+                `).join('') || `<tr><td colspan="6" class="empty">No doctor activity data available.</td></tr>`}
+              </tbody>
+            </table>
+          </div>
+
+          <h3 style="margin:20px 0 10px; color:var(--accent);">👥 Patient Activity</h3>
+          <div class="table-wrap">
+            <table>
+              <thead><tr><th>Patient Name</th><th>Phone</th><th>Login Time</th><th>Logout Time</th><th>Last Active</th><th>Status</th></tr></thead>
+              <tbody>
+                ${(d.patientActivity || []).map(a => `
+                  <tr>
+                    <td><b>${esc(a.patient?.name || 'Patient')}</b></td>
+                    <td>${esc(a.patient?.phone || '-')}</td>
+                    <td>${a.activity?.loginTime ? new Date(a.activity.loginTime).toLocaleString() : '<span style="color:var(--muted);">Never</span>'}</td>
+                    <td>${a.activity?.logoutTime ? new Date(a.activity.logoutTime).toLocaleString() : '<span style="color:var(--muted);">—</span>'}</td>
+                    <td>${a.activity?.lastActiveTime ? new Date(a.activity.lastActiveTime).toLocaleString() : '<span style="color:var(--muted);">—</span>'}</td>
+                    <td><span class="status-pill ${a.activity?.loginTime && !a.activity?.logoutTime ? 'confirmed' : 'pending'}">${a.activity?.loginTime && (!a.activity?.logoutTime || a.activity.loginTime > a.activity.logoutTime) ? 'Online' : 'Offline'}</span></td>
+                  </tr>
+                `).join('') || `<tr><td colspan="6" class="empty">No patient activity data available.</td></tr>`}
+              </tbody>
+            </table>
+          </div>
+        </section>
+      `;
+
+    case 'doctors':
+      return table('Hospital Doctors Directory', ['Doctor Name', 'Department', 'Specialization', 'Status'], (d.doctors || []).map(doc => `
+        <tr><td><b>🩺 ${esc(doc.name)}</b></td><td>${esc(doc.department)}</td><td>${esc(doc.specialization)}</td><td><span class="status-pill ${doc.status === 'approved' ? 'confirmed' : doc.status === 'suspended' ? 'cancelled' : 'pending'}">${esc(doc.status || 'Active')}</span></td></tr>
+      `));
+    case 'patients':
+      return `
+        <div style="display:flex; flex-direction:column; gap:20px;">
+          <section class="panel" style="margin-bottom:0;">
+            <div class="panel-head">
+              <div>
+                <h2>👥 Patient Admissions & Entry Telemetry</h2>
+                <p style="color:var(--muted); margin:0;">Real-time log of patients admitted to hospital wards, triaged, and allocated beds.</p>
+              </div>
+              <button class="mini primary" onclick="window.__HOSP_D12__?.openAdmitModal()">➕ Log Patient Entry</button>
+            </div>
+          </section>
+          ${renderHospitalDashboard(d)}
+        </div>
+      `;
+    case 'appointments':
+      return table('Hospital Appointments', ['Doctor', 'Patient', 'Date', 'Time', 'Department', 'Status'], (d.appointments || []).map(a => `
+        <tr><td>${esc(a.doctor?.name || '-')}</td><td>${esc(a.patient?.name || '-')}</td><td>${a.date}</td><td>${a.time}</td><td>${esc(a.department)}</td><td><span class="status-pill ${a.status}">${a.status}</span></td></tr>
+      `));
+    case 'reports':
+      return `
+        <div style="display:flex; flex-direction:column; gap:20px;">
+          <section class="panel" style="margin-bottom:0;">
+            <div class="panel-head">
+              <div>
+                <h2>📈 Hospital Operations & Patient Inflow Analytics</h2>
+                <p style="color:var(--muted); margin:0;">Continuous telemetry of bed occupancy, patient admission velocity, and ward sweep lanes.</p>
+              </div>
+            </div>
+          </section>
+          ${renderHospitalDashboard(d)}
+        </div>
+      `;
+    case 'departments':
+      return `
+        <section class="panel">
+          <div class="panel-head">
+            <div>
+              <h2>🏢 Hospital Medical Departments & Ward Capacities</h2>
+              <p style="color:var(--muted); margin:0;">Real-time overview of medical departments, on-duty clinical staff, and bed allocation.</p>
+            </div>
+            <button class="mini primary" onclick="window.__HOSP_D12__?.openBedModal()">🛏️ Update Bed Counts</button>
+          </div>
+          <div style="display:grid; grid-template-columns:repeat(auto-fit, minmax(240px, 1fr)); gap:16px; margin-top:16px;">
+            <div class="metric"><div class="metric-icon">🚨</div><div><strong>ICU & Critical Care</strong><span>4 Doctors · 6/24 Beds Free</span></div></div>
+            <div class="metric"><div class="metric-icon">🚑</div><div><strong>Emergency & Trauma</strong><span>5 Doctors · 12/20 Beds Free</span></div></div>
+            <div class="metric"><div class="metric-icon">❤️</div><div><strong>Cardiology Ward</strong><span>4 Doctors · 8/28 Beds Free</span></div></div>
+            <div class="metric"><div class="metric-icon">🧠</div><div><strong>Neurology Unit</strong><span>2 Doctors · 5/18 Beds Free</span></div></div>
+            <div class="metric"><div class="metric-icon">👶</div><div><strong>Pediatrics & Neonatal</strong><span>3 Doctors · 16/24 Beds Free</span></div></div>
+            <div class="metric"><div class="metric-icon">🩺</div><div><strong>General Medical & Surgical</strong><span>6 Doctors · 32/86 Beds Free</span></div></div>
+          </div>
+        </section>
+      `;
+    case 'profile':
+      return `
+        <section class="panel">
+          <h2>👤 Hospital Profile & Details</h2>
+          <form onsubmit="saveProfileData(event)" class="form-grid">
+            <label>Hospital Name<input name="name" value="${esc(state.user.name)}" required></label>
+            <label>Phone<input name="phone" value="${esc(state.user.phone || '04023456789')}" required></label>
+            <label class="wide">Address<textarea name="address" rows="2">${esc(state.user.address || 'Main Road, Hyderabad')}</textarea></label>
+            <div class="wide"><button class="primary" type="submit">💾 Save Hospital Profile</button></div>
+          </form>
+        </section>
+      `;
+    case 'settings':
+      return `
+        <section class="panel">
+          <div class="panel-head">
+            <div>
+              <h2>⚙️ Hospital Capacity & Threshold Settings</h2>
+              <p style="color:var(--muted); margin:0;">Configure automated bed shortage alerts, triage escalation, and patient sync policies.</p>
+            </div>
+          </div>
+          <div class="form-grid" style="margin-top:20px;">
+            <label>Bed Critical Shortage Threshold
+              <select>
+                <option selected>Alert when available beds &lt; 15%</option>
+                <option>Alert when available beds &lt; 10%</option>
+                <option>Alert when available beds &lt; 5%</option>
+              </select>
+            </label>
+            <label>Emergency Triage Auto-Routing
+              <select>
+                <option selected>Automatic Fast-Track Queue</option>
+                <option>Manual Nurse Assignment</option>
+              </select>
+            </label>
+            <label>Patient Entry Live Sync Rate
+              <select>
+                <option selected>Instant Webhook Relay</option>
+                <option>Every 10 Seconds</option>
+              </select>
+            </label>
+            <div class="wide">
+              <button class="primary" onclick="showNotification('Hospital notification and capacity thresholds saved!')">💾 Save Settings</button>
+            </div>
+          </div>
+        </section>
+      `;
+    case 'overview':
+    default:
+      return renderHospitalDashboard(d);
   }
 }
 
@@ -1612,28 +2023,132 @@ function adminContent() {
   switch (state.section) {
     case 'users':
       return table('Platform Users', ['Name', 'Email', 'Role', 'Status'], (d.users || []).map(u => `
-        <tr><td><b>${esc(u.name)}</b></td><td>${esc(u.email)}</td><td><span class="type-pill">${esc(u.role)}</span></td><td><span class="status-pill confirmed">Active</span></td></tr>
+        <tr><td><b>${esc(u.name)}</b></td><td>${esc(u.email)}</td><td><span class="type-pill">${esc(u.role)}</span></td><td><span class="status-pill ${u.active !== false ? 'confirmed' : 'cancelled'}">${u.active !== false ? 'Active' : 'Inactive'}</span></td></tr>
       `));
     case 'hospitals':
-      return table('Registered Hospitals', ['Hospital Name', 'Address', 'Status'], (d.hospitals || []).map(h => `
-        <tr><td><b>🏥 ${esc(h.name)}</b></td><td>${esc(h.address)}</td><td><span class="status-pill confirmed">Authorized</span></td></tr>
-      `));
-    case 'emergency':
-      return table('Emergency Cases', ['Trigger', 'GPS Location', 'Status', 'Timestamp'], (d.emergencies || []).map(e => `
-        <tr><td>🚨 <b>${esc(e.trigger)}</b></td><td>${e.latitude ? `${e.latitude.toFixed(4)}, ${e.longitude.toFixed(4)}` : '17.3850, 78.4867'}</td><td>${e.status}</td><td>${esc(e.createdAt?.slice(0, 19))}</td></tr>
-      `));
-    default:
       return `
-        <div class="metrics">
-          ${card('Total Users', d.users?.length || 4, 'Platform accounts', '👥')}
-          ${card('Doctors', d.doctors?.length || 1, 'Verified doctors', '🩺')}
-          ${card('Hospitals', d.hospitals?.length || 1, 'Authorized nodes', '🏥')}
-          ${card('Emergencies', (d.emergencies || []).length, 'SOS alerts logged', '🚨')}
-        </div>
-        ${table('Platform Recent Appointments', ['Doctor', 'Date', 'Time', 'Status'], (d.appointments || []).slice(0, 6).map(a => `
-          <tr><td>${esc(a.doctor?.name)}</td><td>${a.date}</td><td>${a.time}</td><td>${a.status}</td></tr>
-        `))}
+        <section class="panel">
+          <div class="panel-head">
+            <div>
+              <h2>🏥 Hospital Account Management</h2>
+              <p style="color:var(--muted); margin:0;">Only administrators can create hospital accounts. Provide credentials to the hospital offline.</p>
+            </div>
+          </div>
+
+          <div class="ai-assistant-bar" style="margin:16px 0; padding:18px; background:rgba(35,215,197,0.08); border:1px solid rgba(35,215,197,0.3); border-radius:14px;">
+            <h3 style="margin:0 0 14px; color:var(--accent);">➕ Create New Hospital Account</h3>
+            <form id="add-hospital-form" class="form-grid">
+              <label>Hospital Name<input id="hosp-name" placeholder="Hospital Full Name" required></label>
+              <label>Email Address<input id="hosp-email" type="email" placeholder="hospital@email.com" required></label>
+              <label>Password<input id="hosp-password" type="password" placeholder="Min 8 characters" required></label>
+              <label>Phone<input id="hosp-phone" placeholder="Phone number"></label>
+              <label class="wide">Address<input id="hosp-address" placeholder="Full address"></label>
+              <label>Latitude<input id="hosp-lat" type="number" step="any" placeholder="e.g., 17.3850"></label>
+              <label>Longitude<input id="hosp-lng" type="number" step="any" placeholder="e.g., 78.4867"></label>
+              <div class="wide"><button class="primary" type="submit">➕ Create Hospital Account</button></div>
+            </form>
+          </div>
+
+          <div class="table-wrap" style="margin-top:15px;">
+            <table>
+              <thead><tr><th>Hospital Name</th><th>Email</th><th>Address</th><th>Phone</th><th>Status</th><th>Actions</th></tr></thead>
+              <tbody>
+                ${(d.hospitals || []).map(h => `
+                  <tr>
+                    <td><b>\ud83c\udfe5 ${esc(h.name)}</b></td>
+                    <td>${esc(h.email)}</td>
+                    <td>${esc(h.address || '-')}</td>
+                    <td>${esc(h.phone || '-')}</td>
+                    <td><span class="status-pill ${h.active !== false ? 'confirmed' : 'cancelled'}">${h.active !== false ? 'Active' : 'Inactive'}</span></td>
+                    <td style="display:flex; gap:6px; flex-wrap:wrap;">
+                      ${h.active !== false ? `<button class="mini" onclick="adminHospitalStatus('${h.id}', false)">\u26d4 Deactivate</button>` : `<button class="mini" onclick="adminHospitalStatus('${h.id}', true)">\u2705 Activate</button>`}
+                      <button class="mini" onclick="adminDeleteHospital('${h.id}')" style="color:#ff4d67;">\ud83d\uddd1 Delete</button>
+                    </td>
+                  </tr>
+                `).join('') || `<tr><td colspan="6" class="empty">No hospitals registered yet.</td></tr>`}
+              </tbody>
+            </table>
+          </div>
+        </section>
       `;
+    case 'activity':
+      return `
+        <section class="panel">
+          <div class="panel-head">
+            <div>
+              <h2>\ud83d\udce1 Platform Activity Logs</h2>
+              <p style="color:var(--muted); margin:0;">Monitor all login, logout, and activity events across the platform.</p>
+            </div>
+          </div>
+          <div class="table-wrap" style="margin-top:15px;">
+            <table>
+              <thead><tr><th>User</th><th>Role</th><th>Action</th><th>Timestamp</th></tr></thead>
+              <tbody>
+                ${(d.activityLogs || []).slice(0, 50).map(log => `
+                  <tr>
+                    <td><b>${esc(log.userName || 'Unknown')}</b></td>
+                    <td><span class="type-pill">${esc(log.userRole || log.role)}</span></td>
+                    <td><span class="status-pill ${log.action === 'login' ? 'confirmed' : log.action === 'logout' ? 'cancelled' : 'pending'}">${esc(log.action)}</span></td>
+                    <td>${new Date(log.timestamp).toLocaleString()}</td>
+                  </tr>
+                `).join('') || `<tr><td colspan="4" class="empty">No activity logs yet.</td></tr>`}
+              </tbody>
+            </table>
+          </div>
+        </section>
+      `;
+    case 'reports':
+      return `
+        <div style="display:flex; flex-direction:column; gap:20px;">
+          <section class="panel" style="margin-bottom:0;">
+            <div class="panel-head">
+              <div>
+                <h2>📈 Platform Growth & Telemetry Reports</h2>
+                <p style="color:var(--muted); margin:0;">Continuous hospital fleet telemetry and platform performance telemetry.</p>
+              </div>
+            </div>
+          </section>
+          ${renderDashboard12(d)}
+        </div>
+      `;
+    case 'settings':
+      return `
+        <section class="panel">
+          <div class="panel-head">
+            <div>
+              <h2>⚙️ Platform & Infrastructure Settings</h2>
+              <p style="color:var(--muted); margin:0;">Configure global API gateways, hospital telemetry thresholds, and zero-trust security policies.</p>
+            </div>
+          </div>
+          <div class="form-grid" style="margin-top:20px;">
+            <label>API Gateway Cluster Endpoint
+              <input value="https://api.medismart.health" readonly>
+            </label>
+            <label>Telemetry Heartbeat Rate
+              <select>
+                <option selected>High Fidelity (Every 5 seconds)</option>
+                <option>Standard (Every 30 seconds)</option>
+                <option>Economy (Every 2 minutes)</option>
+              </select>
+            </label>
+            <label>Hospital Fleet Auto-Sync & Failover
+              <select>
+                <option selected>Enabled (Automatic routing)</option>
+                <option>Manual Verification Required</option>
+              </select>
+            </label>
+            <label>Security Encryption Level
+              <input value="AES-GCM-256 (Strict Zero-Trust)" readonly>
+            </label>
+            <div class="wide">
+              <button class="primary" onclick="showNotification('Platform infrastructure settings saved successfully!')">💾 Save Configurations</button>
+            </div>
+          </div>
+        </section>
+      `;
+    case 'overview':
+    default:
+      return renderDashboard12(d);
   }
 }
 
@@ -1659,9 +2174,10 @@ function dashboard() {
           <button class="glass-btn sm-global-toggle" type="button" aria-label="Open Features Menu">
             <span>☰</span> ${t('menu')} (${navList.length} Features)
           </button>
-          <button class="glass-btn" onclick="toggleAIChat()">✨ ${t('aiAssistant')}</button>
           <button class="glass-btn" data-action="voice">🎙 ${t('voice')}</button>
-          <button class="danger" data-action="sos">🚨 ${t('sos')}</button>
+          ${state.user.role !== 'hospital' && state.user.role !== 'admin' ? `
+            <button class="danger" data-action="sos">🚨 ${t('sos')}</button>
+          ` : ''}
         </div>
       </div>
 
@@ -1801,26 +2317,32 @@ async function load() {
         api('/prescriptions').catch(() => [])
       ]);
       state.data = { appointments, records, prescriptions };
+      if (state.section === 'video') {
+        setTimeout(() => loadPatientContextForVideo(), 150);
+      }
     } else if (r === 'hospital') {
-      const [appointments, doctors, patients, emergencies] = await Promise.all([
+      const [appointments, doctors, patients, schedules, docAct, patAct, capacity, patientEntries] = await Promise.all([
         api('/appointments').catch(() => []),
         api('/hospital/doctors').catch(() => []),
         api('/hospital/patients').catch(() => []),
-        api('/emergency').catch(() => [])
+        api('/hospital/schedules').catch(() => []),
+        api('/hospital/activity/doctors').catch(() => []),
+        api('/hospital/activity/patients').catch(() => []),
+        api('/hospital/capacity').catch(() => null),
+        api('/hospital/patient-entries').catch(() => [])
       ]);
-      state.data = { appointments, doctors, patients, emergencies };
+      state.data = {
+        appointments, doctors, patients, schedules,
+        doctorActivity: docAct, patientActivity: patAct,
+        capacity, patientEntries
+      };
     } else {
-      const [users, patients, doctors, hospitals, appointments, records, prescriptions, emergencies] = await Promise.all([
+      const [users, hospitals, activityLogs] = await Promise.all([
         api('/admin/users').catch(() => []),
-        api('/admin/patients').catch(() => []),
-        api('/admin/doctors').catch(() => []),
         api('/admin/hospitals').catch(() => []),
-        api('/admin/appointments').catch(() => []),
-        api('/admin/records').catch(() => []),
-        api('/admin/prescriptions').catch(() => []),
-        api('/emergency').catch(() => [])
+        api('/admin/activity').catch(() => [])
       ]);
-      state.data = { users, patients, doctors, hospitals, appointments, records, prescriptions, emergencies };
+      state.data = { users, hospitals, activityLogs };
     }
   } catch (e) {
     console.error(e);
@@ -1830,37 +2352,229 @@ async function load() {
   bindMotion();
 }
 
+// ----------------------------------------------------
+// GLOBAL HANDLERS FOR HOSPITAL & ADMIN (Changes 2, 3, 4, 5, 8)
+// ----------------------------------------------------
+window.manageDoctorStatus = async function(id, status) {
+  try {
+    await api(`/hospital/doctors/${id}/status`, {
+      method: 'PUT',
+      body: JSON.stringify({ status })
+    });
+    showNotification(`Doctor status updated to: ${status}`);
+    await load();
+  } catch (e) {
+    alert(e.message);
+  }
+};
+
+window.updateSlotStatus = async function(slotId, status) {
+  try {
+    await api(`/hospital/slots/${slotId}/status`, {
+      method: 'PUT',
+      body: JSON.stringify({ status })
+    });
+    showNotification(`Slot status updated to: ${status}`);
+    await load();
+  } catch (e) {
+    alert(e.message);
+  }
+};
+
+window.adminHospitalStatus = async function(id, active) {
+  try {
+    await api(`/admin/hospitals/${id}/status`, {
+      method: 'PUT',
+      body: JSON.stringify({ active })
+    });
+    showNotification(`Hospital account ${active ? 'activated' : 'deactivated'}.`);
+    await load();
+  } catch (e) {
+    alert(e.message);
+  }
+};
+
+window.adminDeleteHospital = async function(id) {
+  if (!confirm('Are you sure you want to deactivate and remove this hospital?')) return;
+  try {
+    await api(`/admin/hospitals/${id}`, { method: 'DELETE' });
+    showNotification('Hospital deactivated successfully.');
+    await load();
+  } catch (e) {
+    alert(e.message);
+  }
+};
+
+window.onDoctorSelectChange = function(doctorId) {
+  const docId = doctorId || document.getElementById('doctor')?.value;
+  const doc = (state.data.doctors || []).find(d => d.id === docId);
+  const deptInput = document.getElementById('department');
+  if (doc && deptInput) deptInput.value = doc.department || doc.specialization || 'General Medicine';
+};
+
+window.loadDoctorSchedule = function() {
+  const docId = document.getElementById('schedule-doctor')?.value;
+  const content = document.getElementById('schedule-content');
+  if (!content) return;
+  if (!docId) {
+    content.innerHTML = `<div class="empty" style="padding:30px; text-align:center; color:var(--muted);">Select a doctor above to view and manage their schedule.</div>`;
+    return;
+  }
+  const sched = (state.data.schedules || []).find(s => s.doctorId === docId);
+  if (!sched || !sched.slots || !sched.slots.length) {
+    content.innerHTML = `<div class="empty" style="padding:20px; text-align:center; color:var(--muted);">No custom slots for this doctor yet. Use "Add Quick Slot" below to create weekly slots.</div>`;
+    return;
+  }
+  content.innerHTML = `
+    <div style="margin-top:14px;">
+      <h3 style="color:var(--accent); font-size:16px; margin:0 0 10px;">📋 ${esc(sched.doctor?.name || 'Doctor')} Schedule Slots</h3>
+      <div class="table-wrap">
+        <table>
+          <thead><tr><th>Day</th><th>Start</th><th>End</th><th>Type</th><th>Status</th><th>Actions</th></tr></thead>
+          <tbody>
+            ${sched.slots.map(slot => `
+              <tr>
+                <td style="text-transform:capitalize;"><b>${esc(slot.day)}</b></td>
+                <td>${esc(slot.startTime)}</td>
+                <td>${esc(slot.endTime)}</td>
+                <td><span class="type-pill">${esc(slot.type)}</span></td>
+                <td><span class="status-pill ${slot.status === 'available' ? 'confirmed' : slot.status === 'disabled' ? 'cancelled' : 'pending'}">${esc(slot.status)}</span></td>
+                <td>
+                  ${slot.status === 'available' ? `<button class="mini" onclick="updateSlotStatus('${slot.id}', 'disabled')">Disable</button> <button class="mini" onclick="updateSlotStatus('${slot.id}', 'blocked')">Block</button>` : `<button class="mini" onclick="updateSlotStatus('${slot.id}', 'available')">Enable</button>`}
+                </td>
+              </tr>
+            `).join('')}
+          </tbody>
+        </table>
+      </div>
+    </div>
+  `;
+};
+
+window.loadPatientContextForVideo = async function(patientId) {
+  const container = document.getElementById('video-patient-context-body');
+  if (!container) return;
+
+  const select = document.getElementById('video-patient-select');
+  const pid = patientId || select?.value || state.data.appointments?.[0]?.patientId || '1';
+
+  container.innerHTML = `<div style="padding:15px; color:var(--accent); text-align:center;">✨ Fetching complete EHR & AI history...</div>`;
+
+  try {
+    const res = await api(`/consultation/patient-context/${pid}`);
+    const d = res.data;
+    const po = d.patientOverview;
+
+    container.innerHTML = `
+      <div style="font-size:13px; display:grid; gap:12px;">
+        ${po ? `
+          <div style="background:rgba(255,255,255,0.04); padding:12px; border-radius:10px; border:1px solid var(--line);">
+            <div style="font-weight:700; color:#fff; font-size:14px; margin-bottom:4px;">${esc(po.name)}</div>
+            <div style="display:flex; flex-wrap:wrap; gap:8px; margin-top:6px;">
+              <span class="qr-pill">Blood: <b>${esc(po.bloodGroup)}</b></span>
+              <span class="qr-pill" style="border-color:#ff4d67; color:#ff8b99;">Allergies: <b>${esc(po.allergies)}</b></span>
+              <span class="qr-pill">Condition: <b>${esc(po.conditions)}</b></span>
+              <span class="qr-pill">Visits: <b>${po.totalVisits}</b></span>
+            </div>
+          </div>
+        ` : ''}
+
+        <div style="background:rgba(35,215,197,0.06); padding:12px; border-radius:10px; border:1px solid rgba(35,215,197,0.25);">
+          <div style="font-weight:700; color:var(--accent); margin-bottom:6px;">⚠️ Key Medical Notes</div>
+          ${(d.importantNotes || []).map(n => `<div style="font-size:12px; color:#e1effa; margin-bottom:4px;">${esc(n)}</div>`).join('')}
+        </div>
+
+        <div>
+          <div style="font-weight:700; color:#c9d8e8; margin-bottom:6px;">📋 Previous Consultations</div>
+          ${(d.previousVisits || []).slice(0, 3).map(v => `
+            <div style="background:rgba(255,255,255,0.03); padding:8px 10px; border-radius:8px; margin-bottom:6px; font-size:12px; border:1px solid var(--line);">
+              <div style="display:flex; justify-content:space-between; color:var(--muted);">
+                <span>${esc(v.date)} · ${esc(v.department)}</span>
+                <span class="status-pill confirmed">${esc(v.status)}</span>
+              </div>
+              <div style="margin-top:3px;"><b>Diagnosis:</b> ${esc(v.diagnosis)}</div>
+              <div style="color:var(--muted); margin-top:2px;"><b>Notes:</b> ${esc(v.treatmentNotes)}</div>
+            </div>
+          `).join('') || '<div style="color:var(--muted); font-size:12px;">No past consultations.</div>'}
+        </div>
+
+        <div>
+          <div style="font-weight:700; color:#c9d8e8; margin-bottom:6px;">💊 Active Prescriptions</div>
+          ${(d.previousPrescriptions || []).slice(0, 2).map(p => `
+            <div style="background:rgba(255,255,255,0.03); padding:8px 10px; border-radius:8px; margin-bottom:6px; font-size:12px; border:1px solid var(--line);">
+              <div style="color:var(--accent); font-weight:600;">${esc(p.medicines)}</div>
+              <div style="color:var(--muted); font-size:11px; margin-top:2px;">${esc(p.instructions)}</div>
+            </div>
+          `).join('') || '<div style="color:var(--muted); font-size:12px;">No active prescriptions.</div>'}
+        </div>
+      </div>
+    `;
+  } catch (e) {
+    container.innerHTML = `<div class="error" style="font-size:12px;">${esc(e.message)}</div>`;
+  }
+};
+
 async function doLogin(form) {
+  const errEl = document.getElementById('error');
+  if (errEl) errEl.innerHTML = '';
+
+  const emailInput = form?.querySelector('#email') || form?.email || document.getElementById('email');
+  const passwordInput = form?.querySelector('#password') || form?.password || document.getElementById('password');
+  const email = (emailInput?.value || '').trim();
+  const password = (passwordInput?.value || '').trim();
+  const role = state.role || 'patient';
+
+  if (!email || !password) {
+    if (errEl) errEl.innerHTML = `<div class="error" role="alert">Please enter both email and password.</div>`;
+    return;
+  }
+
+  const submitBtn = document.getElementById('btn-login-submit');
+  if (submitBtn) {
+    submitBtn.disabled = true;
+    submitBtn.innerText = 'Signing in...';
+  }
+
   try {
     const d = await api('/auth/login', {
       method: 'POST',
-      body: JSON.stringify({ email: form.email.value, password: form.password.value, role: state.role })
+      body: JSON.stringify({ email, password, role })
     });
     state.user = d.user;
     state.token = d.token;
     save();
     state.section = 'overview';
+    showNotification(`Welcome back, ${d.user.name}!`);
     await load();
   } catch (e) {
-    const err = document.getElementById('error');
-    if (err) err.innerHTML = `<div class="error" role="alert">${esc(e.message)}</div>`;
-    speak(e.message);
+    console.error('Login error:', e);
+    if (errEl) errEl.innerHTML = `<div class="error" role="alert">${esc(e.message || 'Login failed')}</div>`;
+    speak(e.message || 'Login failed');
+  } finally {
+    if (submitBtn) {
+      submitBtn.disabled = false;
+      submitBtn.innerText = `${t('signIn')} →`;
+    }
   }
 }
 
 async function doBook(form) {
   try {
+    const selectedDoctorId = form.doctor.value;
+    const selectedDoctor = (state.data?.doctors || []).find(d => d.id === selectedDoctorId);
+    const doctorName = selectedDoctor?.name || 'Specialist Doctor';
+
     await api('/appointments', {
       method: 'POST',
       body: JSON.stringify({
-        doctor: form.doctor.value,
+        doctor: selectedDoctorId,
         department: form.department.value,
         date: form.date.value,
         time: form.time.value,
         reason: form.reason.value
       })
     });
-    showNotification("Appointment booked successfully!");
+    showNotification(`✅ Appointment request sent to ${doctorName}! Reflected in doctor schedule.`);
     state.section = 'appointments';
     await load();
   } catch (e) {
@@ -1916,7 +2630,16 @@ async function updateAppt(id, status) {
       method: 'PUT',
       body: JSON.stringify({ status })
     });
-    showNotification(`Appointment marked as ${status}.`);
+    // Optimistic local state update
+    if (state.data && Array.isArray(state.data.appointments)) {
+      const target = state.data.appointments.find(a => a.id === id);
+      if (target) {
+        target.status = status;
+      }
+    }
+    const statusMsg = status === 'confirmed' ? '✅ Appointment confirmed! Patient has been notified.' : status === 'completed' ? '✓ Consultation marked as completed!' : `Appointment marked as ${status}.`;
+    showNotification(statusMsg);
+    render();
     await load();
   } catch (e) {
     alert(e.message);
@@ -2061,48 +2784,360 @@ function bindMotion() {
   });
 }
 
+// ----------------------------------------------------
+// ENHANCED INTERACTIVE VOICE ASSISTANT (HUD & SPEECH)
+// ----------------------------------------------------
+let activeVoiceRecognition = null;
+
 function voice() {
-  if (!('webkitSpeechRecognition' in window || 'SpeechRecognition' in window)) {
-    alert('Voice commands are supported in Google Chrome and Microsoft Edge.');
-    return;
+  // Stop any active speech synthesis or recognition first
+  if ('speechSynthesis' in window) window.speechSynthesis.cancel();
+  if (activeVoiceRecognition) {
+    try { activeVoiceRecognition.stop(); } catch {}
+    activeVoiceRecognition = null;
   }
-  const R = window.SpeechRecognition || window.webkitSpeechRecognition;
-  const r = new R();
-  r.lang = langs[state.lang]?.speech || 'en-IN';
-  r.interimResults = false;
-  r.maxAlternatives = 3;
-  speak(t('listening') + ' ' + t('voiceHint'));
 
-  r.onresult = e => {
-    const q = e.results[0][0].transcript.toLowerCase();
-    const hit = (...words) => words.some(w => q.includes(w));
-    if (hit('emergency', 'sos', 'आपात', 'आपत्कालीन', 'అత్యవసర', 'అత్యవసరం', 'அவசர')) return sos('voice-command');
-    if (!state.user) {
-      if (hit('dashboard', 'डैशबोर्ड', 'డ్యాష్‌బోర్డ్', 'டாஷ்போர்டு')) {
-        location.hash = 'roles';
-        return render();
-      }
-      return speak(t('voiceHint'));
-    }
-    if (hit('overview', 'dashboard', 'अवलोकन', 'అవలోకనం', 'மேலோட்டம்')) state.section = 'overview';
-    else if (hit('appointment', 'अपॉइंटमेंट', 'అపాయింట్', 'அப்பாயிண்ட்')) state.section = state.user.role === 'doctor' ? 'today' : 'appointments';
-    else if (hit('queue', 'कतार', 'క్యూ', 'வரிசை')) state.section = 'queue';
-    else if (hit('consult', 'परामर्श', 'కన్సల్టేషన్', 'ஆலோசனை')) state.section = 'consult';
-    else if (hit('video', 'telemedicine', 'वीडियो')) state.section = 'video';
-    else if (hit('record', 'रिकॉर्ड', 'రికార్డు', 'பதிவு')) state.section = 'records';
-    else if (hit('prescription', 'प्रिस्क्रिप्शन', 'ప్రిస్క్రిప్షన్', 'மருந்து')) state.section = 'prescriptions';
-    else if (hit('profile', 'प्रोफ़ाइल', 'ప్రొఫైల్', 'சுயவிவரம்')) state.section = 'profile';
-    else if (hit('setting', 'सेटिंग', 'సెట్టింగ్', 'அமைப்பு')) state.section = 'settings';
-    else if (hit('book', 'बुक', 'బుక్')) state.section = 'book';
-    else speak(t('voiceHint'));
+  // Remove any existing voice modal overlay
+  document.getElementById('voice-hud-modal-overlay')?.remove();
 
-    render();
-    speak(`${t(state.section)}`);
+  const role = state.user?.role || 'guest';
+  const roleHints = {
+    patient: ['Book appointment', 'My prescriptions', 'Emergency SOS', 'Medical records', 'Telemedicine video', 'Consultation history'],
+    doctor: ['Today appointments', 'AI summary', 'Waiting queue', 'Video consultation', 'Patient records', 'Issue prescription'],
+    hospital: ['Manage doctors', 'Doctor directory', 'Schedules and slots', 'Activity tracking', 'Emergency cases', 'Hospital profile'],
+    admin: ['Hospital management', 'Users management', 'Activity logs', 'Emergency cases', 'Patient directory'],
+    guest: ['Get started', 'Login as Patient', 'Login as Doctor', 'Login as Hospital', 'Emergency SOS']
   };
 
-  r.onerror = () => speak('Voice command could not be completed.');
-  r.start();
+  const chips = roleHints[role] || roleHints.guest;
+
+  const overlay = document.createElement('div');
+  overlay.id = 'voice-hud-modal-overlay';
+  overlay.className = 'voice-hud-overlay';
+  overlay.setAttribute('role', 'dialog');
+  overlay.setAttribute('aria-modal', 'true');
+  overlay.innerHTML = `
+    <div class="voice-hud-modal">
+      <button style="position:absolute; right:16px; top:16px; background:none; border:none; color:var(--muted); font-size:20px; cursor:pointer;" id="voice-hud-close" aria-label="Close Voice Assistant">✕</button>
+      <div style="font-size:36px; margin-bottom:4px;">🎙️</div>
+      <h2 style="font-family:'Space Grotesk'; font-size:22px; margin:0 0 4px; color:#fff;">Medi-AI Voice Assistant</h2>
+      <p style="color:var(--accent); font-size:13.5px; margin:0;" id="voice-hud-status">● Listening... Speak your medical command</p>
+
+      <div class="voice-wave-container" id="voice-wave-bars">
+        <div class="voice-wave-bar"></div>
+        <div class="voice-wave-bar"></div>
+        <div class="voice-wave-bar"></div>
+        <div class="voice-wave-bar"></div>
+        <div class="voice-wave-bar"></div>
+        <div class="voice-wave-bar"></div>
+        <div class="voice-wave-bar"></div>
+      </div>
+
+      <div class="voice-transcript-box" id="voice-hud-transcript">
+        <span style="color:var(--muted); font-style:italic;">Listening to microphone... Speak clearly</span>
+      </div>
+
+      <div style="margin-top:14px; text-align:left;">
+        <span style="font-size:12px; color:var(--muted); display:block; margin-bottom:6px;">Sample Voice Commands (or Click to Run):</span>
+        <div class="voice-chips">
+          ${chips.map(c => `<button class="voice-chip" onclick="processVoiceCommand('${c.toLowerCase()}')">💬 "${c}"</button>`).join('')}
+        </div>
+      </div>
+    </div>
+  `;
+  document.body.appendChild(overlay);
+
+  const closeBtn = document.getElementById('voice-hud-close');
+  const closeVoice = () => {
+    if (activeVoiceRecognition) {
+      try { activeVoiceRecognition.stop(); } catch {}
+      activeVoiceRecognition = null;
+    }
+    overlay.remove();
+  };
+  if (closeBtn) closeBtn.onclick = closeVoice;
+
+  // Check Web Speech API Support
+  if (!('webkitSpeechRecognition' in window || 'SpeechRecognition' in window)) {
+    const statusEl = document.getElementById('voice-hud-status');
+    const transcriptEl = document.getElementById('voice-hud-transcript');
+    if (statusEl) statusEl.innerHTML = "<span style='color:#ff8b99;'>⚠️ Microphone Speech API not supported in this browser</span>";
+    if (transcriptEl) transcriptEl.innerHTML = "<span>Speech recognition is supported in Chrome, Edge & Safari. You can click any sample command above.</span>";
+    return;
+  }
+
+  const R = window.SpeechRecognition || window.webkitSpeechRecognition;
+  const r = new R();
+  activeVoiceRecognition = r;
+  r.lang = langs[state.lang]?.speech || 'en-IN';
+  r.interimResults = true;
+  r.continuous = false;
+  r.maxAlternatives = 3;
+
+  r.onstart = () => {
+    const statusEl = document.getElementById('voice-hud-status');
+    if (statusEl) statusEl.innerHTML = "<span style='color:var(--accent);'>● Active & Listening... Speak now</span>";
+  };
+
+  r.onresult = e => {
+    let interim = '';
+    let finalTranscript = '';
+    for (let i = e.resultIndex; i < e.results.length; ++i) {
+      if (e.results[i].isFinal) {
+        finalTranscript += e.results[i][0].transcript;
+      } else {
+        interim += e.results[i][0].transcript;
+      }
+    }
+
+    const transcriptEl = document.getElementById('voice-hud-transcript');
+    if (transcriptEl) {
+      transcriptEl.innerHTML = `<span><b>Heard:</b> "${esc(finalTranscript || interim)}"</span>`;
+    }
+
+    if (finalTranscript) {
+      processVoiceCommand(finalTranscript.toLowerCase());
+    }
+  };
+
+  r.onerror = e => {
+    const statusEl = document.getElementById('voice-hud-status');
+    const transcriptEl = document.getElementById('voice-hud-transcript');
+    if (e.error === 'no-speech') {
+      if (statusEl) statusEl.innerHTML = "<span style='color:#ffd27d;'>⏳ No speech detected. Please speak or click a command.</span>";
+    } else if (e.error === 'not-allowed') {
+      if (statusEl) statusEl.innerHTML = "<span style='color:#ff7083;'>🚫 Microphone permission blocked. Click a sample command below.</span>";
+      if (transcriptEl) transcriptEl.innerHTML = "<span>Microphone access was denied. Enable mic in browser settings to speak.</span>";
+    } else {
+      if (statusEl) statusEl.innerHTML = `<span style='color:#ff8b99;'>Notice: ${esc(e.error)}</span>`;
+    }
+  };
+
+  r.onend = () => {
+    activeVoiceRecognition = null;
+  };
+
+  try {
+    r.start();
+  } catch (err) {
+    console.warn('Voice start warning:', err);
+  }
 }
+
+window.processVoiceCommand = function(text) {
+  const q = String(text || '').toLowerCase().trim();
+  const hit = (...words) => words.some(w => q.includes(w));
+
+  const statusEl = document.getElementById('voice-hud-status');
+  const transcriptEl = document.getElementById('voice-hud-transcript');
+  const overlay = document.getElementById('voice-hud-modal-overlay');
+
+  if (statusEl) statusEl.innerHTML = "<span>⚡ Executing Command...</span>";
+  if (transcriptEl) transcriptEl.innerHTML = `<span><b>Running:</b> "${esc(q)}"</span>`;
+
+  // Stop active recognition
+  if (activeVoiceRecognition) {
+    try { activeVoiceRecognition.stop(); } catch {}
+    activeVoiceRecognition = null;
+  }
+
+  // Auto close HUD after short delay
+  setTimeout(() => {
+    if (overlay) overlay.remove();
+  }, 900);
+
+  // 1. Emergency SOS Trigger
+  if (hit('emergency', 'sos', 'help', 'ambulance', 'आपात', 'आपत्कालीन', 'అత్యవసర', 'அவசர')) {
+    sos('voice-command');
+    return;
+  }
+
+  // 2. Guest / Logged-out Commands
+  if (!state.user) {
+    if (hit('patient')) {
+      state.role = 'patient';
+      location.hash = 'login';
+      render();
+      speak("Switched to Patient login.");
+    } else if (hit('doctor')) {
+      state.role = 'doctor';
+      location.hash = 'login';
+      render();
+      speak("Switched to Doctor login.");
+    } else if (hit('hospital')) {
+      state.role = 'hospital';
+      location.hash = 'login';
+      render();
+      speak("Switched to Hospital login.");
+    } else if (hit('admin')) {
+      state.role = 'admin';
+      location.hash = 'login';
+      render();
+      speak("Switched to Admin login.");
+    } else {
+      location.hash = 'roles';
+      render();
+      speak("Opening roles selection.");
+    }
+    return;
+  }
+
+  const role = state.user.role;
+
+  // 3. Universal Navigation
+  if (hit('overview', 'dashboard', 'home', 'अवलोकन', 'అవలోకనం', 'மேலோட்டம்')) {
+    state.section = 'overview';
+    render();
+    return speak("Navigated to Overview.");
+  }
+  if (hit('profile', 'account', 'प्रोफ़ाइल', 'ప్రొఫైల్', 'சுயவிவரம்')) {
+    state.section = 'profile';
+    render();
+    return speak("Navigated to Profile.");
+  }
+  if (hit('setting', 'settings', 'accessibility', 'सेटिंग', 'సెట్టింగ్', 'அமைப்பு')) {
+    state.section = 'settings';
+    render();
+    return speak("Navigated to Settings.");
+  }
+
+  // 4. Patient Voice Commands
+  if (role === 'patient') {
+    if (hit('book', 'schedule appointment', 'book appointment', 'बुक', 'బుక్')) {
+      state.section = 'book';
+      render();
+      speak("Opening appointment booking form.");
+    } else if (hit('appointment', 'my appointments', 'bookings', 'अपॉइंटमेंट', 'అపాయింట్')) {
+      state.section = 'appointments';
+      render();
+      speak("Opening your appointments.");
+    } else if (hit('prescription', 'medicine', 'medicines', 'rx', 'drugs', 'प्रिस्क्रिप्शन', 'ప్రిస్క్రిప్షన్', 'மருந்து')) {
+      state.section = 'prescriptions';
+      render();
+      speak("Opening your digital prescriptions.");
+    } else if (hit('record', 'medical record', 'ehr', 'lab', 'documents', 'रिकॉर्ड', 'రికార్డు', 'பதிவு')) {
+      state.section = 'records';
+      render();
+      speak("Opening medical records vault.");
+    } else if (hit('history', 'consultation history', 'past visits')) {
+      state.section = 'history';
+      render();
+      speak("Opening consultation history.");
+    } else if (hit('video', 'telemedicine', 'call doctor', 'camera', 'वीडियो')) {
+      state.section = 'video';
+      render();
+      speak("Joining telemedicine room.");
+    } else if (hit('qr', 'health id', 'badge', 'card')) {
+      state.section = 'qrcard';
+      render();
+      speak("Displaying Emergency QR Health Badge.");
+    } else {
+      speak("Command not recognized for Patient. Try saying book appointment, my prescriptions, or emergency.");
+    }
+    return;
+  }
+
+  // 5. Doctor Voice Commands
+  if (role === 'doctor') {
+    if (hit('today', 'appointment', 'todays appointments', 'schedule', 'अपॉइंटमेंट')) {
+      state.section = 'today';
+      render();
+      speak("Showing today's scheduled consultations.");
+    } else if (hit('queue', 'waiting', 'waiting queue', 'patient queue', 'कतार', 'క్యూ', 'வரிசை')) {
+      state.section = 'queue';
+      render();
+      speak("Opening live patient waiting queue.");
+    } else if (hit('summary', 'ai summary', 'summarize', 'clinical notes')) {
+      state.section = 'consult';
+      render();
+      setTimeout(() => window.generateAISummary?.(), 300);
+      speak("Generating AI consultation summary.");
+    } else if (hit('consult', 'consultation', 'diagnose', 'clinical', 'परामर्श', 'కన్సల్టేషన్')) {
+      state.section = 'consult';
+      render();
+      speak("Opening AI clinical consultation studio.");
+    } else if (hit('video', 'telemedicine', 'call patient', 'room', 'video feed', 'वीडियो')) {
+      state.section = 'video';
+      render();
+      speak("Opening doctor telemedicine context studio.");
+    } else if (hit('prescription', 'prescriptions', 'issue rx', 'medication', 'प्रिस्क्रिप्शन')) {
+      state.section = 'prescriptions';
+      render();
+      speak("Opening digital prescription issuer.");
+    } else if (hit('record', 'patient records', 'ehr', 'vault', 'lab', 'रिकॉर्ड')) {
+      state.section = 'records';
+      render();
+      speak("Opening patient EHR records.");
+    } else {
+      speak("Command not recognized for Doctor. Try saying today's appointments, AI summary, or waiting queue.");
+    }
+    return;
+  }
+
+  // 6. Hospital Voice Commands
+  if (role === 'hospital') {
+    if (hit('manage doctor', 'manage doctors', 'add doctor', 'approve doctor', 'doctors list')) {
+      state.section = 'manage-doctors';
+      render();
+      speak("Opening doctor management dashboard.");
+    } else if (hit('doctor', 'doctors', 'staff', 'directory')) {
+      state.section = 'doctors';
+      render();
+      speak("Opening hospital doctor directory.");
+    } else if (hit('schedule', 'schedules', 'slots', 'slot', 'availability')) {
+      state.section = 'schedules';
+      render();
+      speak("Opening doctor schedule and slot manager.");
+    } else if (hit('activity', 'tracking', 'login logs', 'logins', 'status')) {
+      state.section = 'activity';
+      render();
+      speak("Opening doctor and patient activity tracking.");
+    } else if (hit('patient', 'patients', 'admitted', 'entry', 'admissions', 'inflow')) {
+      state.section = 'patients';
+      render();
+      speak("Showing patient entry and admissions telemetry.");
+    } else if (hit('appointment', 'appointments', 'bookings')) {
+      state.section = 'appointments';
+      render();
+      speak("Showing hospital appointment bookings.");
+    } else if (hit('department', 'departments', 'wards', 'ward')) {
+      state.section = 'departments';
+      render();
+      speak("Showing hospital medical departments and wards.");
+    } else if (hit('bed', 'beds', 'capacity', 'occupancy', 'overview', 'dashboard', 'stats', 'analytics', 'telemetry')) {
+      state.section = 'overview';
+      render();
+      speak("Opening hospital bed capacity and patient inflow analytics dashboard.");
+    } else {
+      speak("Command not recognized for Hospital. Try saying overview, bed capacity, patient admissions, manage doctors, or schedules.");
+    }
+    return;
+  }
+
+  // 7. Admin Voice Commands
+  if (role === 'admin') {
+    if (hit('hospital', 'hospitals', 'manage hospital', 'create hospital')) {
+      state.section = 'hospitals';
+      render();
+      speak("Opening hospital account management.");
+    } else if (hit('user', 'users', 'accounts', 'platform')) {
+      state.section = 'users';
+      render();
+      speak("Opening users management.");
+    } else if (hit('activity', 'activity log', 'logs', 'audit', 'tracking')) {
+      state.section = 'activity';
+      render();
+      speak("Opening platform-wide activity logs.");
+    } else if (hit('reports', 'analytics', 'telemetry', 'performance', 'overview', 'dashboard', 'status', 'sweep')) {
+      state.section = 'overview';
+      render();
+      speak("Opening hospital status and website telemetry dashboard.");
+    } else {
+      speak("Command not recognized for Admin. Try saying overview, hospital management, users, or activity logs.");
+    }
+    return;
+  }
+};
 
 function mountStrandsBackground() {
   const bgDom = document.getElementById('strands-bg');
@@ -2208,6 +3243,18 @@ function render(scroll = true) {
 
   initStaggeredMenuRoot();
 
+  // Mount React Bits Pro Dashboard 12 for platform administrator overview / telemetry
+  const d12Root = document.getElementById('rb-dashboard-12-root');
+  if (d12Root) {
+    initDashboard12(d12Root, { data: state.data });
+  }
+
+  // Mount Hospital Dashboard for hospital overview / reports / capacity
+  const hospRoot = document.getElementById('rb-hospital-dashboard-root');
+  if (hospRoot) {
+    initHospitalDashboard(hospRoot, { data: state.data, user: state.user });
+  }
+
   if (scroll) window.scrollTo(0, 0);
   if (state.disability === 'blind' && document.activeElement === document.body) {
     setTimeout(() => speak(document.body.innerText.slice(0, 1000)), 150);
@@ -2228,6 +3275,7 @@ function bind() {
         state.role = '';
         render();
       } else if (a === 'logout') {
+        api('/auth/logout', { method: 'POST' }).catch(() => {});
         state.user = null;
         state.token = '';
         state.role = '';
@@ -2301,12 +3349,131 @@ function bind() {
   const rx = document.getElementById('rx-form');
   if (rx) rx.onsubmit = e => { e.preventDefault(); doRx(rx); };
 
+  // Hospital & Admin Forms
+  const addDocForm = document.getElementById('add-doctor-form');
+  if (addDocForm) addDocForm.onsubmit = async e => {
+    e.preventDefault();
+    try {
+      await api('/hospital/doctors', {
+        method: 'POST',
+        body: JSON.stringify({
+          name: document.getElementById('doc-name').value,
+          email: document.getElementById('doc-email').value,
+          password: document.getElementById('doc-password').value,
+          phone: document.getElementById('doc-phone').value,
+          specialization: document.getElementById('doc-specialization').value,
+          department: document.getElementById('doc-department').value,
+          status: document.getElementById('doc-status').value
+        })
+      });
+      showNotification('Doctor account created and registered with hospital!');
+      await load();
+    } catch (err) { alert(err.message); }
+  };
+
+  const addSlotForm = document.getElementById('add-slot-form');
+  if (addSlotForm) addSlotForm.onsubmit = async e => {
+    e.preventDefault();
+    const doctorId = document.getElementById('schedule-doctor')?.value;
+    if (!doctorId) return alert('Please select a doctor from the dropdown first.');
+    try {
+      const existingSchedule = (state.data.schedules || []).find(s => s.doctorId === doctorId);
+      const slots = [...(existingSchedule?.slots || [])];
+      slots.push({
+        day: document.getElementById('slot-day').value,
+        startTime: document.getElementById('slot-start').value,
+        endTime: document.getElementById('slot-end').value,
+        type: document.getElementById('slot-type').value,
+        status: 'available'
+      });
+      await api('/hospital/schedules', {
+        method: 'POST',
+        body: JSON.stringify({ doctorId, slots })
+      });
+      showNotification('New slot added to doctor schedule!');
+      await load();
+    } catch (err) { alert(err.message); }
+  };
+
+  const addHospForm = document.getElementById('add-hospital-form');
+  if (addHospForm) addHospForm.onsubmit = async e => {
+    e.preventDefault();
+    try {
+      const res = await api('/admin/hospitals', {
+        method: 'POST',
+        body: JSON.stringify({
+          name: document.getElementById('hosp-name').value,
+          email: document.getElementById('hosp-email').value,
+          password: document.getElementById('hosp-password').value,
+          phone: document.getElementById('hosp-phone').value,
+          address: document.getElementById('hosp-address').value,
+          latitude: document.getElementById('hosp-lat').value,
+          longitude: document.getElementById('hosp-lng').value
+        })
+      });
+      showNotification(`Hospital account created! Provide credentials (Email: ${res.credentials?.email}) to hospital.`);
+      await load();
+    } catch (err) { alert(err.message); }
+  };
+
   document.querySelectorAll('[data-appt]').forEach(b => {
     b.onclick = () => updateAppt(b.dataset.appt, b.dataset.status);
   });
 
   if (state.user) bindMotion();
 }
+
+// Real-time Appointment Synchronization Poller (every 4 seconds)
+let prevAppointmentMap = new Map();
+
+async function syncAppointments() {
+  if (!state.user || !state.token) return;
+  const role = state.user.role;
+  if (role !== 'patient' && role !== 'doctor') return;
+
+  try {
+    const endpoint = role === 'patient' ? '/appointments/my' : '/appointments/doctor';
+    const latestAppts = await api(endpoint).catch(() => null);
+
+    if (Array.isArray(latestAppts)) {
+      let stateChanged = false;
+
+      if (role === 'patient') {
+        for (const appt of latestAppts) {
+          const prevStatus = prevAppointmentMap.get(appt.id);
+          if (prevStatus === 'pending' && appt.status === 'confirmed') {
+            loudAlert();
+            showNotification(`🎉 Great news! Dr. ${appt.doctor?.name || 'Doctor'} has CONFIRMED your appointment on ${appt.date} at ${appt.time}!`);
+            stateChanged = true;
+          }
+        }
+      } else if (role === 'doctor') {
+        for (const appt of latestAppts) {
+          const prevStatus = prevAppointmentMap.get(appt.id);
+          if (!prevStatus && appt.status === 'pending') {
+            showNotification(`⚡ New patient appointment request received from ${appt.patient?.name || 'Patient'} for ${appt.time}!`);
+            stateChanged = true;
+          }
+        }
+      }
+
+      prevAppointmentMap = new Map(latestAppts.map(a => [a.id, a.status]));
+      state.data.appointments = latestAppts;
+      if (stateChanged) {
+        render();
+      }
+    }
+  } catch {}
+}
+
+setInterval(syncAppointments, 4000);
+
+// Periodic heartbeat (every 4 minutes)
+setInterval(() => {
+  if (state.user && state.token) {
+    api('/auth/heartbeat', { method: 'PUT' }).catch(() => {});
+  }
+}, 4 * 60 * 1000);
 
 function mountPointerFX() {
   const root = document.documentElement;
